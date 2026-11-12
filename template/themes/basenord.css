@@ -1,0 +1,77 @@
+/* basenord.css: the Basenord brand, Palette D (Prussian ink #0C1B33, ocean blue #2E86AB darkened to
+   #0B7189 for small text, pumpkin #FF6700 in small doses, linen canvas #F4F1E8, dusty olive #72705B) with
+   Inter and Inter Display. Source: the Basenord brand identity note (palette, typography).
+   report.css ships the same values as its default look today; this file pins them, so Basenord pages keep
+   the brand when the plain look changes. The dark mode is a derivation, not yet a ratified brand palette.
+   Link it after report.css. */
+
+:root {
+  --bg: #F4F1E8; --surface: #FAF7F0; --surface-2: #EFEBDF; --code-bg: #EAE6DA;
+  --ink: #0C1B33; --muted: #72705B; --faint: #A19E88;
+  --line: #E0DBCE; --line-strong: #D3CDBE;
+  --primary: #0B7189; --primary-hover: #085A6D; --ocean: #2E86AB; --primary-soft: #DDEAF0;
+  --pumpkin: #FF6700; --on-primary: #F4F1E8;
+  --ok: #3D7350; --ok-bg: #E0ECDF;
+  --info: #0B7189; --info-bg: #DDEAF0;
+  --warn: #855C00; --warn-bg: #F5E9C8;
+  --danger: #A8361F; --danger-bg: #F5DFD7;
+  --neutral: #5F5D4A; --neutral-bg: #E7E3D6;
+  --accent: #A84400; --accent-bg: #FFE3CF;
+  --zebra: rgba(12, 27, 51, .028); --row-hover: rgba(46, 134, 171, .07);
+  --hit: rgba(255, 103, 0, .22); --hit-current: #FF6700; --hit-current-ink: #0C1B33;
+  --anno: rgba(46, 134, 171, .16); --anno-line: rgba(11, 113, 137, .65); --anno-hover: rgba(46, 134, 171, .28);
+  --shadow: 0 1px 2px rgba(12, 27, 51, .05), 0 6px 20px rgba(12, 27, 51, .07);
+  --shadow-lg: 0 10px 40px rgba(12, 27, 51, .18);
+  --backdrop: rgba(12, 27, 51, .72); --scrim: rgba(12, 27, 51, .42);
+  --bar-bg: rgba(244, 241, 232, .88);
+  --heading: var(--ink); --on-pumpkin: #0C1B33;
+  --selection: rgba(46, 134, 171, .28); --pick-bg: rgba(255, 103, 0, .07);
+  --font: "Report Inter", "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-display: "Report Inter Display", "Inter Display", var(--font);
+  --font-features: "cv11", "ss01";
+}
+
+@media screen {
+  :root[data-theme="dark"] {
+    --bg: #0C1B33; --surface: #11223D; --surface-2: #142744; --code-bg: #182C4B;
+    --ink: #E9E5D9; --muted: #A8A58E; --faint: #7D7B66;
+    --line: #1F3454; --line-strong: #283E60;
+    --primary: #5BAFD4; --primary-hover: #7FC2E0; --ocean: #5BAFD4; --primary-soft: rgba(46, 134, 171, .22);
+    --pumpkin: #FF6700; --on-primary: #0C1B33;
+    --ok: #7FC08F; --ok-bg: rgba(127, 192, 143, .15);
+    --info: #5BAFD4; --info-bg: rgba(91, 175, 212, .15);
+    --warn: #E8C15A; --warn-bg: rgba(232, 193, 90, .14);
+    --danger: #F07A63; --danger-bg: rgba(240, 122, 99, .15);
+    --neutral: #B5B29B; --neutral-bg: rgba(168, 165, 142, .15);
+    --accent: #FF8A3D; --accent-bg: rgba(255, 103, 0, .17);
+    --zebra: rgba(233, 229, 217, .025); --row-hover: rgba(91, 175, 212, .07);
+    --hit: rgba(255, 103, 0, .32); --hit-current: #FF8A3D; --hit-current-ink: #0C1B33;
+    --anno: rgba(91, 175, 212, .18); --anno-line: rgba(91, 175, 212, .7); --anno-hover: rgba(91, 175, 212, .3);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 6px 20px rgba(0, 0, 0, .25);
+    --shadow-lg: 0 10px 40px rgba(0, 0, 0, .5);
+    --backdrop: rgba(4, 10, 20, .8); --scrim: rgba(4, 10, 20, .62);
+    --bar-bg: rgba(12, 27, 51, .88);
+  }
+}
+@media screen and (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #0C1B33; --surface: #11223D; --surface-2: #142744; --code-bg: #182C4B;
+    --ink: #E9E5D9; --muted: #A8A58E; --faint: #7D7B66;
+    --line: #1F3454; --line-strong: #283E60;
+    --primary: #5BAFD4; --primary-hover: #7FC2E0; --ocean: #5BAFD4; --primary-soft: rgba(46, 134, 171, .22);
+    --pumpkin: #FF6700; --on-primary: #0C1B33;
+    --ok: #7FC08F; --ok-bg: rgba(127, 192, 143, .15);
+    --info: #5BAFD4; --info-bg: rgba(91, 175, 212, .15);
+    --warn: #E8C15A; --warn-bg: rgba(232, 193, 90, .14);
+    --danger: #F07A63; --danger-bg: rgba(240, 122, 99, .15);
+    --neutral: #B5B29B; --neutral-bg: rgba(168, 165, 142, .15);
+    --accent: #FF8A3D; --accent-bg: rgba(255, 103, 0, .17);
+    --zebra: rgba(233, 229, 217, .025); --row-hover: rgba(91, 175, 212, .07);
+    --hit: rgba(255, 103, 0, .32); --hit-current: #FF8A3D; --hit-current-ink: #0C1B33;
+    --anno: rgba(91, 175, 212, .18); --anno-line: rgba(91, 175, 212, .7); --anno-hover: rgba(91, 175, 212, .3);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 6px 20px rgba(0, 0, 0, .25);
+    --shadow-lg: 0 10px 40px rgba(0, 0, 0, .5);
+    --backdrop: rgba(4, 10, 20, .8); --scrim: rgba(4, 10, 20, .62);
+    --bar-bg: rgba(12, 27, 51, .88);
+  }
+}

@@ -1,0 +1,5 @@
+# The home server pnpm refuses packages younger than a day; keep the same rule here so the lockfile installs on both machines.
+minimumReleaseAge: 1440
+# rolldown 1.2.19 (2026-11-11) is younger than that; drop this pin once vite resolves to a mature rolldown.
+overrides:
+  rolldown: 1.2.18

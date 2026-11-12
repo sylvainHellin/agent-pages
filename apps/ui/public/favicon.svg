@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Default agent-pages icon: the app's logo mark (LogoMark in apps/ui/src/components/shell.tsx), three lines of text
+       on a tile. Tile #0B7189 (Basenord primary), lines #F4F1E8 (paper).
+       The background rect keeps rx="14": build.py rounds it for the favicons and leaves it square for iOS. -->
+  <rect width="64" height="64" rx="0" fill="#0B7189"/>
+  <path d="M19.2 21.6h25.6M19.2 32h16M19.2 42.4h20.8" fill="none" stroke="#F4F1E8" stroke-width="5.4" stroke-linecap="round"/>
+</svg>

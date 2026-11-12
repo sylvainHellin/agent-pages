@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en" data-doc-id="report-html-example">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidepool catch-up, 16 October 2026</title>
+<link rel="stylesheet" href="report.css">
+<link rel="stylesheet" href="themes/plain.css">
+<script src="report.js"></script>
+</head>
+<body>
+<main>
+
+<p class="eyebrow">Tidepool · Catch-up</p>
+<h1>Tidepool catch-up, 16 October 2026</h1>
+<p class="lede">The beta build is next, and its sync engine still assumes one device per user.
+State on 16 October 2026, drawn from the repo, the handoffs, the notes and the milestone "Tidepool 0.4 beta".
+The last sync work landed on 8 October (v0.3.2, decisions up to D27).</p>
+<p class="meta"><span>16 October 2026</span><span>Sources: repo, handoffs, notes, milestone board</span></p>
+
+<div class="kpis">
+  <div class="kpi"><span class="kpi-label">App</span><span class="kpi-value">v0.3.2</span><span class="kpi-note">six screens, 412 tests, all green</span></div>
+  <div class="kpi"><span class="kpi-label">Decisions</span><span class="kpi-value">D1 to D27</span><span class="kpi-note">in <code>decision-log.md</code></span></div>
+  <div class="kpi"><span class="kpi-label">Field tests</span><span class="kpi-value">14 + 6</span><span class="kpi-note">sessions on the river and the coast</span></div>
+  <div class="kpi"><span class="kpi-label">User guide</span><span class="kpi-value">~300 words</span><span class="kpi-note"><code>docs/guide.md</code> is still a skeleton</span></div>
+</div>
+
+<div class="callout warning">
+<p class="callout-title">Next deadline: beta build for the field team, 30 October</p>
+<p>Optional for this release, but you decided on 13 October to ship it anyway.
+The sync module in <code>src/sync/</code> still follows the design of 11 September and contradicts the plan agreed at the last review.</p>
+<ul>
+  <li>It resolves conflicts by last write wins; the agreed rule is a merge per field with the older value kept in the history.</li>
+  <li>It stores photos inside the notes database, which D18 moved to a separate folder.</li>
+  <li>The two testers who joined in October have no accounts yet.</li>
+</ul>
+<p>No ticket existed, so I created TP-100 (due 30 October, high).</p>
+</div>
+
+<h2>Scope as confirmed on 13 October</h2>
+<ul>
+  <li>Beta 0.4: notes, photos and GPS tracks, synced between a phone and a tablet, nothing shared between users yet.</li>
+  <li>No map tiles offline in the beta, unless the field team finds the app useless without them.</li>
+  <li>Release 0.5 (by May 2027): shared projects, roles, and export to the open data portal.</li>
+  <li>Release 0.6: species suggestions from photos, on the device.</li>
+  <li>App store review: 5 March 2027; release candidate targeted for end of January.</li>
+</ul>
+<p class="src">Source: <code>notes/meetings/2026-10-13 review.md</code></p>
+
+<figure class="fig">
+<svg viewBox="0 0 860 170" role="img" aria-label="Timeline from 16 October 2026 to May 2027">
+  <line x1="50" y1="85" x2="815" y2="85" stroke="var(--line-strong)" stroke-width="2"/>
+  <line x1="60" y1="85" x2="108" y2="85" stroke="var(--pumpkin)" stroke-width="3"/>
+  <g font-size="13" fill="currentColor">
+    <circle cx="60" cy="85" r="6" fill="var(--ink)"/>
+    <text x="60" y="52" text-anchor="middle" font-weight="600">16 Oct</text>
+    <text x="60" y="68" text-anchor="middle" fill="var(--muted)" font-size="12">today</text>
+
+    <circle cx="108" cy="85" r="7" fill="var(--pumpkin)"/>
+    <text x="108" y="114" text-anchor="start" font-weight="600">30 Oct</text>
+    <text x="108" y="130" text-anchor="start" fill="var(--muted)" font-size="12">beta build</text>
+
+    <circle cx="425" cy="85" r="6" fill="var(--surface)" stroke="var(--ocean)" stroke-width="2.5"/>
+    <text x="425" y="52" text-anchor="middle" font-weight="600">end of January</text>
+    <text x="425" y="68" text-anchor="middle" fill="var(--muted)" font-size="12">release candidate</text>
+
+    <circle cx="537" cy="85" r="6" fill="var(--surface)" stroke="var(--ocean)" stroke-width="2.5"/>
+    <text x="537" y="114" text-anchor="middle" font-weight="600">5 Mar 2027</text>
+    <text x="537" y="130" text-anchor="middle" fill="var(--muted)" font-size="12">app store review</text>
+
+    <circle cx="780" cy="85" r="6" fill="var(--surface)" stroke="var(--ocean)" stroke-width="2.5"/>
+    <text x="780" y="52" text-anchor="middle" font-weight="600">May 2027</text>
+    <text x="780" y="68" text-anchor="middle" fill="var(--muted)" font-size="12">release 0.5</text>
+  </g>
+</svg>
+<figcaption>Deadlines from the 13 October scope, spaced to scale; the pumpkin stretch is the two weeks left for the beta build.</figcaption>
+</figure>
+
+<h2>Open items</h2>
+<table>
+<tr><th>Item</th><th>Ticket</th><th>Who</th></tr>
+<tr><td>Sync module rewritten to the 13 October plan and the beta built</td><td class="nowrap">TP-100</td><td><span class="badge accent">you</span></td></tr>
+<tr><td>Create accounts for the two new testers</td><td>none</td><td><span class="badge accent">you</span></td></tr>
+<tr><td>Track follow-up: split long tracks into days, drop points closer than two metres, add the device name to each track</td><td class="nowrap">TP-82</td><td><span class="badge accent">your answers</span></td></tr>
+<tr><td>Delete the <code>legacy_notes</code> table: nothing has written to it since v0.2 (breaking change)</td><td>none</td><td><span class="badge accent">your yes/no</span></td></tr>
+<tr><td>Note templates, 12 kinds, questions A to G</td><td class="nowrap">TP-81</td><td><span class="badge warn">release 0.5</span></td></tr>
+<tr><td>Field-test findings still open: a night mode, a larger shutter button, a note nested in a photo</td><td class="nowrap">TP-65</td><td><span class="badge accent">decide</span></td></tr>
+<tr><td>Wording fixes before the string freeze: units, date formats, the empty-state texts of three screens</td><td>none</td><td><span class="badge accent">decide</span></td></tr>
+<tr><td>Four gaps found in the data model: author, folder nesting, description, a weather field; plus a home for unparsed GPS lines</td><td>none</td><td><span class="badge info">agent</span></td></tr>
+<tr><td>Tag hierarchy (three habitat tags with two parents) to review</td><td>none</td><td><span class="badge info">agent</span></td></tr>
+<tr><td>Redraw five screenshots after D26 and D27</td><td class="nowrap">TP-83</td><td><span class="badge info">after TP-82</span></td></tr>
+<tr><td>Battery benchmark rerun on v0.3</td><td>none</td><td><span class="badge neutral">until sync stable</span></td></tr>
+<tr><td>Worked comparison of the two storage engines, owed to the design notes since the September review</td><td>none</td><td><span class="badge info">agent</span></td></tr>
+<tr><td>Domain registration, blocked on a hosting decision</td><td>none</td><td><span class="badge neutral">later</span></td></tr>
+<tr><td>Photo archive import, paused since the old drive failed; the new drive is now mounted at <code>/mnt/archive</code></td><td class="nowrap">TP-78</td><td><span class="badge info">resume</span></td></tr>
+</table>
+<p class="src">Stale tickets to close or rewrite: TP-40 (survey done), TP-68 (one-pager built), TP-65 (paths point at the old repo).</p>
+
+<h2>Design decisions learned lately</h2>
+<h3>The guiding rule since 23 September</h3>
+<blockquote>The core keeps only what every note shares; everything a team may want to organise differently is a swappable template.
+<span class="src">From the September design review</span></blockquote>
+<table>
+<tr><th>Decision</th><th>What it says</th></tr>
+<tr><td class="nowrap">D20, D21</td><td>Habitat, weather, status and note-kind lists leave the core; the core keeps bare fields such as <code>kind</code>. This settles the "habitat in the core?" question.</td></tr>
+<tr><td>D22</td><td>The role field is gone: a membership links a person to a project and lists what they may edit.</td></tr>
+<tr><td>D23</td><td>One note table; per-kind fields go into templates, observation first (<code>observation.json</code>).</td></tr>
+<tr><td>D24</td><td>A field's name follows its template: observation fields start with <code>obs_</code>, enforced by <code>check.py</code>.</td></tr>
+<tr><td>D25</td><td>Site and project code become records; file extension stays text.</td></tr>
+<tr><td>D26</td><td>Every link between people sits in one tree under the project. A role relative to one note goes on the link, never on the person: a team lead both assigns and is assigned.</td></tr>
+<tr><td>D27</td><td>What a note is about and where it was taken are two fields: <code>subject</code> points at a kind (bird, plant), <code>place</code> at a real spot (north bank, pool 2). Places nest; projects reach them through their sites, since a site outlives its projects.</td></tr>
+</table>
+<h3>Smaller lessons</h3>
+<ul>
+  <li>Field naming: <code>has</code> plus a role noun is fine (<code>hasReviewer</code>), <code>has</code> plus a type name reads as ownership and takes a verb instead (<code>involvesPerson</code>).</li>
+  <li>A note kind says what the note is, never its subject, author, status or project.</li>
+  <li>The phone's GPS has no altitude field indoors, contrary to what the docs claimed.</li>
+  <li>Code <code>C</code> means cloudy in one template and coastal in another and already misfiles nine notes.</li>
+  <li>The ten onboarding questions were reworded in the tester's voice (13 October).</li>
+</ul>
+
+<h2>Reading</h2>
+<div class="grid-2">
+<div>
+<h3>Specifications</h3>
+<ul>
+  <li>Three sections to read before the sync rewrite: the CRDT paper's section 5, the platform's background-task limits, and the photo metadata spec.</li>
+  <li>Decision pending in <code>sync-plan.html</code>: move conflict resolution from the server to the devices.</li>
+  <li>Needed only for release 0.5, and read by no brief so far: the open data portal's upload API, its licence terms and its schema for observations.</li>
+  <li>The status page's badges were not maintained after 23 September: 40 of 45 cards still read Open.</li>
+</ul>
+</div>
+<div>
+<h3>Notes you have not read yet</h3>
+<ul>
+  <li><code>offline-first survey</code> (31 July), the comparator survey.</li>
+  <li><code>Conflict-free replicated data types</code>, which ends on an open decision.</li>
+  <li><code>GPX format</code>, <code>EXIF</code>, and the accessibility checklist.</li>
+</ul>
+</div>
+</div>
+
+<h2>Comparable apps</h2>
+<p>Three surveys exist, and none found an app that makes Tidepool redundant.</p>
+<table>
+<tr><th>Survey</th><th>Covers</th><th>Status</th></tr>
+<tr><td><code>field-apps-survey</code> (notes)</td><td>Citizen-science and survey apps</td><td><span class="badge ok">done</span> feeds the status page</td></tr>
+<tr><td><code>offline-first survey</code> (notes, 31 July)</td><td>Sync engines and local-first libraries; only two handle photos, and none keeps a field history.</td><td><span class="badge ok">done</span> unread by you</td></tr>
+<tr><td><code>docs/comparables.html</code> (2 October)</td><td>26 apps in five groups: notebooks, survey forms, trackers, photo journals, mapping</td><td><span class="badge warn">compiled</span> only 9 tried; no picks ticked</td></tr>
+<tr><td><code>docs/positioning.md</code></td><td>The closest peer app</td><td><span class="badge info">drafted</span> positioning</td></tr>
+</table>
+<h3>The eight apps rated "must compare against"</h3>
+<ul>
+  <li>Two survey-form apps, the closest ancestors (both tried).</li>
+  <li>Two citizen-science apps with photo upload.</li>
+  <li>A GPS tracker with offline maps.</li>
+  <li>Three local-first notebooks with sync between devices.</li>
+</ul>
+<div class="callout note">
+<p class="callout-title">Next step</p>
+<p>Tick the picks in the comparables page, try those eight, then draft the positioning section.
+Two borrowable items flagged there: one tracker's day split as a model for long tracks, and one notebook's field history as a model for conflicts.</p>
+</div>
+
+<h2>Decisions for you</h2>
+<div class="callout decision">
+<ol>
+<li>Delete the <code>legacy_notes</code> table now, while breaking changes are still free?</li>
+<li>Rewrite the sync module to the 13 October plan as a first draft to edit? If so, name what it must keep from the 11 September version.</li>
+</ol>
+</div>
+
+<div class="question" data-id="tp-81-park" data-type="single">
+<p class="q-text">Question E on note templates reads as answered by the 13 October review (release 0.5, not the beta). Park TP-81 in the 0.5 milestone and drop its priority?</p>
+<ul>
+  <li data-value="yes">Yes, park it in the 0.5 milestone (recommended)</li>
+  <li data-value="no">No, keep it in the beta milestone at its current priority</li>
+</ul>
+</div>
+
+<div class="question" data-id="tp-82-accept" data-type="multi">
+<p class="q-text">TP-82: which of the three track proposals are accepted as written? The rest stays open for discussion.</p>
+<ul>
+  <li data-value="split">Split long tracks into days</li>
+  <li data-value="thin">Drop points closer than two metres</li>
+  <li data-value="device">The device name on each track</li>
+</ul>
+</div>
+
+</main>
+</body>
+</html>

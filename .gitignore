@@ -1,0 +1,12 @@
+data/
+__pycache__/
+*.tmp
+dist/
+apps/ui/node_modules/
+apps/ui/dist/
+
+# lesson content lives in the lessons folder of the config (lessons_dir); the shared assets are template/
+lessons/
+.venv/
+.agents/
+.sync/

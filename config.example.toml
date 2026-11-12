@@ -1,0 +1,54 @@
+# agent-pages configuration: copy to ~/.config/agent-pages/config.toml (or point AGENT_PAGES_CONFIG at another file).
+# Every key is optional; an empty file, or none at all, gives the defaults shown here.
+# Paths may start with ~.
+
+# Server address and the base of every link `agent-pages url` and `agent-pages lesson new` print.
+# base_url defaults to http://<host>:<port>; set it when a proxy publishes the server elsewhere.
+# host = "127.0.0.1"
+# port = 8320
+# base_url = "https://example-host.example.ts.net:15443"
+
+# Folder of the lessons (one subfolder per lesson). Default: ~/.local/share/agent-pages/lessons
+# lessons_dir = "~/lessons"
+
+# Look of new pages: plain, tum, basenord (template/themes/), or a path to your own .css file
+# that overrides the tokens report.css defines. lesson_theme defaults to theme. app_theme gives the library app
+# its colours and fonts and defaults to lesson_theme.
+# theme = "plain"
+# lesson_theme = "plain"
+# app_theme = "plain"
+
+# Vim keys in the comment and answer boxes. true: on with a mouse, off on touch screens.
+# false: off by default everywhere (written into each new page); the reader can still switch them on.
+# vim_default = true
+
+# Figures for `agent-pages fig build`: "matplotlib" runs .py chart scripts with uv; "texfig" also renders
+# .tex TikZ figures with a checkout of https://github.com/sylvainHellin/tex-fig (needs tectonic and
+# pdftoppm); "none" turns figures off.
+# figure_backend = "matplotlib"
+# texfig_dir = "~/code/tex-fig"
+
+# Obsidian vault whose open notes in 01-projects/ and 02-areas/ are the projects lessons belong to.
+# Unset: lessons have no projects.
+# vault = "~/notes"
+
+# Folders that held an older copy of the template: the server answers links into them with the files of
+# template/, so pages that still link the old folder (by file:// or relative path) keep their style.
+# template_aliases = ["~/old/report-template"]
+
+# Folders the server publishes, as name = folder; a page's link is <base_url>/<name>/<path>.
+# Default: none, so `agent-pages url` has nothing to link.
+# [roots]
+# documents = "~/Documents"
+
+# Opening pages from a machine without a browser (a server) in the browser of a Mac:
+# `agent-pages open` there writes a request into queue, a file sync (Syncthing) carries the folder to the Mac,
+# and a LaunchAgent on the Mac runs `agent-pages drain` when it changes. synced maps each folder the sync
+# shares to its path on the Mac. Unset: `agent-pages open` uses macOS open, or xdg-open on Linux.
+# [remote_open]
+# queue = "~/Documents/.agent-pages-open"
+# mac_home = "/Users/me"
+# log = "~/Library/Logs/agent-pages-open.log"
+#
+# [remote_open.synced]
+# "~/Documents" = "/Users/me/Documents"

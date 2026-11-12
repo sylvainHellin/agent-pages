@@ -1,0 +1,45 @@
+%% change-tracking.tex: how a revised report page could show what changed since the last read.
+%% The browser keeps the version the reader last read; on load, report.js compares the revised page
+%% with it block by block, and each block state maps to one treatment on the page.
+%% Green is what was read, blue is the revised file, orange is change, grey is unchanged.
+%% Build: ~/code/side-projects/tex-fig/examples/build.sh <this file> 200
+\providecommand{\tffigwidth}{\linewidth}
+\resizebox{\tffigwidth}{!}{%
+\begin{tikzpicture}[font=]
+
+% --- inputs ---------------------------------------------------------
+\node[tfcardtitlec=tfGreen] (rTitle) at (0,6.2) {Version you last read};
+\node[tfprose, text width=4.4cm] (rBody) at (0,5.75) {text of every block, kept in the browser for this page};
+\node[tfcardtitlec=tfBlue] (nTitle) at (0,2.2) {Revised page};
+\node[tfprose, text width=4.4cm] (nBody) at (0,1.75) {the HTML file the agent rewrote in place};
+\begin{scope}[on background layer]
+  \node[tfcardc=tfGreen, fit=(rTitle)(rBody)] (cardR) {};
+  \node[tfcardc=tfBlue,  fit=(nTitle)(nBody)] (cardN) {};
+\end{scope}
+
+% --- comparison -----------------------------------------------------
+\node[tfblock={tfDarkGray}{3.6cm}] (cmp) at (8.0,4.0) {Compare\\block by block};
+\node[tfcaption, text width=3.8cm, align=center, anchor=north] at ($(cmp.south)+(0,-0.15)$) {paragraphs, list items,\\table rows, headings};
+
+\draw[tfarrowc=tfGreen, tfelbow] (cardR.east) -| ($(cmp.west)+(-0.9,0.25)$) -- ($(cmp.west)+(0,0.25)$);
+\draw[tfarrowc=tfBlue, tfelbow] (cardN.east) -| ($(cmp.west)+(-0.6,-0.25)$) -- ($(cmp.west)+(0,-0.25)$);
+
+% --- block states -----------------------------------------------------
+\node[tfpill={tfGray}{2.6cm}]   (sU) at (13.0,7.0) {unchanged};
+\node[tfpill={tfOrange}{2.6cm}] (sC) at (13.0,5.0) {changed};
+\node[tfpill={tfGreen}{2.6cm}]  (sN) at (13.0,3.0) {new};
+\node[tfpill={tfRed}{2.6cm}]    (sR) at (13.0,1.0) {removed};
+\foreach \s in {sU,sC,sN,sR} \draw[tfarrow, tfelbow] (cmp.east) -- ++(0.9,0) |- (\s.west);
+
+% --- treatment on the page ------------------------------------------
+\node[tfprose, text width=6.4cm, anchor=west] (tU) at (14.8,7.0) {a section with nothing new collapses and is marked read};
+\node[tfprose, text width=6.4cm, anchor=west] (tC) at (14.8,5.0) {inserted words highlighted, deleted words struck through};
+\node[tfprose, text width=6.4cm, anchor=west] (tN) at (14.8,3.0) {a bar in the margin next to the block};
+\node[tfprose, text width=6.4cm, anchor=west] (tR) at (14.8,1.0) {a thin marker where the block was, its text on click};
+\foreach \s/\t in {sU/tU,sC/tC,sN/tN,sR/tR} \draw[tfarrow] (\s.east) -- (\t.west);
+
+% --- baseline advance -------------------------------------------------
+\draw[tfarrowdashedc=tfGreen, tfelbow] (cardN.south) -- ++(0,-0.9) -| ($(cardR.west)+(-0.8,0)$) -- (cardR.west);
+\node[tfedgelabelc=tfGreen, anchor=north] at ($(cardN.south)+(0,-1.0)$) {export or Mark read: this version becomes the one you read};
+
+\end{tikzpicture}}

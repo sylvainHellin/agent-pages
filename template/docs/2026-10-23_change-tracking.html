@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" data-doc-id="2026-10-23_change-tracking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change tracking for report pages</title>
+<link rel="stylesheet" href="../report.css">
+<link rel="stylesheet" href="../themes/plain.css">
+<script src="../report.js"></script>
+</head>
+<body>
+<main>
+
+<p class="eyebrow">report-html template · Built</p>
+<h1>Change tracking for report pages</h1>
+<p class="lede">The browser keeps the version of each page you last read and compares every revision against it, block by block and word by word. Changes are highlighted and counted in the outline, and sections with nothing new collapse on their own.</p>
+<p class="meta"><span>23 October 2026</span><span>Sources: report.js, report.css, README of the template</span></p>
+
+<div class="callout success">
+<p class="callout-title">Try it on the demo</p>
+<p>Open <a href="demo.html?v=1">demo.html?v=1</a>, then <a href="demo.html?v=2">demo.html?v=2</a>: the same file shows two versions, so the second opens with its changes marked against the first.</p>
+<p>Use the diff button in the top bar or <kbd>d</kbd> for the clean view, and <kbd>]</kbd> and <kbd>[</kbd> to step through the changes; Mark read clears them, and opening version 1 again then shows the reverse changes with the unchanged sections folded.</p>
+<p>Sections fold only against a version you marked read, so the first comparison, against a reference stored on a first visit, leaves them open.</p>
+<p>Your existing pages start tracking on their next visit, which stores the reference; the revision after that shows the marks.</p>
+</div>
+
+<h2>Two problems behind long revisions</h2>
+<ul>
+<li>Small edits are invisible: one changed number in a table row looks like every other row.</li>
+<li>Nothing tells you which parts you already read, so a second round means rereading everything or guessing.</li>
+</ul>
+<p>Both need the same reference point: the version you last read.</p>
+<p>The agent's previous file is the wrong reference, because you may have skipped a revision, or opened a page without reading it.</p>
+
+<figure class="fig">
+<img src="change-tracking.png" alt="The version you last read and the revised page are compared block by block; unchanged, changed, new and removed blocks each get their own treatment, and an export or Mark read makes the current version the one you read.">
+<figcaption>The browser keeps the version you last read; each revision is compared with it, and an export or Mark read moves that reference forward.</figcaption>
+</figure>
+
+<h2>What you decided</h2>
+<ul>
+<li>Block and word diff, without an agent callout explaining the changes.</li>
+<li>A top-bar button shows or hides every change mark, for a clean read.</li>
+<li>A version counts as read on export and when you press Mark read.</li>
+<li>Sections you read that did not change collapse on load.</li>
+<li>Deleted words show inline, struck through in red.</li>
+</ul>
+
+<h2>How it looks in the page</h2>
+<ul>
+<li>The top bar group appears only when something changed: the diff button with the count toggles the marks, two arrows step through the changes, and the double check marks the version as read.</li>
+<li>Inserted words are highlighted in green, since orange already means a search match, and deleted words are struck through in red.</li>
+<li>A changed block gets an accent bar in the left gutter, a new block a green bar.</li>
+<li>A removed block leaves a small red minus chip where it was; clicking it shows its text.</li>
+<li>The outline carries a change count per section, next to the search counts.</li>
+<li>Sections without a change collapse on load once the reference is a version you marked read, and the chevron opens them as usual; folds you set on the same version win.</li>
+<li>Below 720 px the arrows hide and the counter stays; <kbd>]</kbd> and <kbd>[</kbd> still work.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>The reference lives in one browser: Zen and Chrome, or the Mac and the iPad, each keep their own, and a page opened for the first time shows no changes.</li>
+<li>Zen, like Firefox, keeps a separate storage per <code>file://</code> page, so the reference follows the file: a page copied or renamed starts from scratch.</li>
+<li>Chrome gives all <code>file://</code> pages one shared storage of about 5 MB, so the template keeps the reference of the 40 most recently opened pages and drops older ones.</li>
+<li>A block moved to another section counts as removed in one place and new in the other.</li>
+<li>A change in formatting only, such as bold or a link target, does not count as a change.</li>
+<li>Deleted text shown on the page stays out of search, comments and the export, so anchors and selectors keep working.</li>
+<li>A 3000-paragraph page computes its diff in about 100 ms.</li>
+</ul>
+
+</main>
+</body>
+</html>

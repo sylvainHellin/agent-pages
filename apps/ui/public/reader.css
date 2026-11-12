@@ -1,0 +1,82 @@
+/* Injected by the Tutor app (apps/ui, src/lib/reader-page.ts) into lesson pages (same origin). The app bar
+   shows the title, so the lesson's own bar stays small; text gets a phone reading size. */
+
+/* ---------- Text size: pinch on a phone, A− / A+ in the app's ⋯ menu ----------
+   The app sets --tl-fs (0.8 to 2) on <html>. Scaling the root font size scales the text and everything sized
+   in rem, so lines rewrap to the screen width instead of running off it. The page's own top bar keeps its
+   size (zoom by the inverse; --bar-h in px for the sticky offsets that use it). */
+@media screen {
+  html.tl-app { font-size: calc(100% * var(--tl-fs, 1)); }
+  html.tl-app body { font-size: 1rem; }
+  html.tl-app { --bar-h: 56px; }
+  html.tl-app .bn-bar { zoom: var(--tl-fs-inv, 1); height: calc(var(--bar-h) * var(--tl-fs, 1)); }
+  /* icons are sized in px: grow them as much as the zoom shrinks them */
+  html.tl-app .bn-bar svg.i { width: calc(18px * var(--tl-fs, 1)); height: calc(18px * var(--tl-fs, 1)); }
+  html.tl-app .bn-bar .bn-search .bn-btn svg.i { width: calc(16px * var(--tl-fs, 1)); height: calc(16px * var(--tl-fs, 1)); }
+  html.tl-app .bn-main { overflow-wrap: break-word; }
+  html.tl-app .bn-main img, html.tl-app .bn-main video, html.tl-app .bn-main canvas, html.tl-app .bn-main iframe { max-width: 100%; }
+  html.tl-app .bn-main img, html.tl-app .bn-main video { height: auto; }
+  html.tl-app .bn-main svg { max-width: 100%; }
+  html.tl-app .bn-main pre { max-width: 100%; overflow-x: auto; }
+  html.tl-app .bn-main .katex-display, html.tl-app .bn-main mjx-container[display="true"] { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+  /* rows that would run off a narrow screen at a large text size wrap instead */
+  html.tl-app .q-meta { flex-wrap: wrap; row-gap: .3rem; }
+  html.tl-app .bn-main .badge { max-width: 100%; white-space: normal; }
+}
+
+/* A pinch is ours (pinch-zoom of the page itself would push lines off the screen); scrolling stays native. */
+@media (pointer: coarse) {
+  html.tl-app, html.tl-app body { touch-action: pan-x pan-y; }
+}
+html.tl-pinching, html.tl-pinching body { -webkit-user-select: none; user-select: none; }
+
+/* ---------- Focus mode: a tap on the text hides the app's bars and this page's own top bar ---------- */
+html.tl-app .bn-bar { transition: transform .18s ease, opacity .18s ease; }
+html.tl-focus .bn-bar { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+/* what sticks under the bar sticks to the top instead */
+html.tl-focus { scroll-padding-top: 1.25rem; }
+html.tl-focus thead th { top: 0; }
+@media (min-width: 1101px) { html.tl-focus .bn-toc { top: 1.75rem; max-height: calc(100vh - 3.5rem); } }
+@media (prefers-reduced-motion: reduce) { html.tl-app .bn-bar { transition: none; } }
+
+@media (max-width: 720px) {
+  html { -webkit-text-size-adjust: 100%; }
+  html.tl-app { --bar-h: 52px; }
+  body, html.tl-app body { font-size: 1.0625rem; line-height: 1.6; }
+  .bn-layout { padding: 1rem 1rem 4rem; }
+  h1 { font-size: 1.55rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2.2rem; }
+  h3 { font-size: 1.08rem; }
+  .lede { font-size: 1rem; }
+  figure { margin: 1.2rem -0.25rem 1.4rem; }
+  figure img, figure svg, figure object { max-width: 100%; height: auto; }
+  pre { font-size: .78rem; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .bn-table { overflow-x: auto; max-width: 100%; }
+  table { font-size: .82rem; }
+  textarea, input, select { font-size: 16px !important; } /* stop iOS zooming on focus */
+  .bn-bar .bn-search { display: none; }
+}
+
+/* Wide tables (3+ columns, or wider than the screen): one card per row, the column name above
+   each value. reader-page.ts adds .tl-stack and the data-label attributes. */
+@media (max-width: 720px) {
+  .bn-table.tl-stack-wrap, .bn-table.tl-stack-wrap.is-wide { overflow: visible; max-height: none; border: 0; background: none; }
+  table.tl-stack, table.tl-stack tbody, table.tl-stack tr, table.tl-stack td, table.tl-stack tbody th { display: block; width: auto; }
+  table.tl-stack thead { display: none; }
+  table.tl-stack tr { border: 1px solid var(--line); border-radius: var(--r-m, 10px); background: var(--surface); margin: 0 0 .7rem; overflow: hidden; }
+  table.tl-stack tbody tr > * { background: none !important; border: 0; padding: .35rem .85rem; white-space: normal; text-align: left; }
+  table.tl-stack tr > :first-child { background: var(--surface-2) !important; font-weight: 600; padding: .55rem .85rem; border-bottom: 1px solid var(--line); }
+  table.tl-stack tr > :not(:first-child)[data-label]::before {
+    content: attr(data-label); display: block; font: 600 .68rem/1.4 var(--font, inherit);
+    text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: .15rem; }
+  table.tl-stack tr > :last-child { padding-bottom: .65rem; }
+  table.tl-stack td.num { text-align: left; }
+}
+
+/* Review on a phone: a bigger "Add comment" button for thumbs, editor and drawer at full width.
+   The app's own bottom bar sends the review, so the page's floating export pill stays hidden. */
+@media (max-width: 720px) {
+  .anno-add { font-size: 15px; padding: .55rem .9rem; }
+  .anno-pop { position: fixed !important; left: 8px !important; right: 8px; width: auto; max-width: none; top: auto !important; bottom: 8px; }
+  .anno-drawer { width: 100%; max-width: 100%; }
+}

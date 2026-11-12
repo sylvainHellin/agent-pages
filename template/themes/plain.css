@@ -1,0 +1,3 @@
+/* plain.css: the template's own look, the tokens report.css defines (warm paper and navy, Inter).
+   It overrides nothing; pages link it so that switching theme means changing one stylesheet link.
+   A new theme copies themes/tum.css and changes the token values: link it after report.css. */

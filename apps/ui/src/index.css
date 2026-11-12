@@ -1,0 +1,178 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* dark: follows the light / dark mode the app shares with the pages (data-theme on <html>, src/lib/theme.ts) */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+    --font-heading: var(--pg-font-display, var(--font-sans));
+    --font-sans: var(--pg-font, "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Segoe UI", Roboto, sans-serif);
+    --font-mono: var(--pg-font-mono, ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace);
+    --breakpoint-desk: 56.25rem;
+    --color-attention: var(--attention);
+    --color-learning: var(--learning);
+    --color-faint: var(--faint);
+    --color-tint: var(--tint);
+    --color-primary-hover: var(--primary-hover);
+    --color-success: var(--success);
+    --color-warning: var(--warning);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* The app takes the app theme of the config (app_theme, else lesson_theme): api/theme.css (index.html links it) carries the theme's tokens, light and
+   dark, renamed --pg-* (the page's --muted, --accent, --primary and --ring mean something else here). Each shadcn
+   token below takes its page token; the second value is the app's own look (zinc greys, teal), used when the theme
+   stylesheet does not load. Page token roles: --bg page, --surface raised (cards, callouts, search field),
+   --surface-2 hover and pressed, --ink text, --muted secondary text, --faint hints, --line hairlines,
+   --line-strong field borders, --primary the brand colour, --accent the warm signal colour (orange). */
+:root {
+    --background: var(--pg-bg, oklch(0.985 0 0));
+    --foreground: var(--pg-ink, oklch(0.21 0.006 285.885));
+    --card: var(--pg-bg, oklch(1 0 0));
+    --card-foreground: var(--pg-ink, oklch(0.21 0.006 285.885));
+    --popover: var(--pg-surface, oklch(1 0 0));
+    --popover-foreground: var(--pg-ink, oklch(0.21 0.006 285.885));
+    --primary: var(--pg-primary, oklch(0.485 0.083 183.7));
+    --primary-hover: var(--pg-primary-hover, oklch(0.43 0.078 184));
+    --primary-foreground: var(--pg-on-primary, oklch(0.995 0 0));
+    --secondary: var(--pg-surface-2, oklch(0.967 0.001 286.375));
+    --secondary-foreground: var(--pg-ink, oklch(0.274 0.006 286.033));
+    --muted: var(--pg-surface-2, oklch(0.967 0.001 286.375));
+    --muted-foreground: var(--pg-muted, oklch(0.552 0.016 285.938));
+    --faint: var(--pg-faint, oklch(0.705 0.015 286.067));
+    --accent: var(--pg-surface-2, oklch(0.962 0.002 286.3));
+    --accent-foreground: var(--pg-ink, oklch(0.21 0.006 285.885));
+    --attention: var(--pg-accent, oklch(0.553 0.195 38.402));
+    --tint: var(--pg-primary-soft, oklch(0.965 0.018 183));
+    --destructive: var(--pg-danger, oklch(0.577 0.215 27.3));
+    --border: var(--pg-line, oklch(0.928 0.003 286.3));
+    --input: var(--pg-line-strong, oklch(0.905 0.004 286.3));
+    --ring: var(--pg-primary, oklch(0.485 0.083 183.7));
+    --learning: oklch(0.76 0.12 75);
+    --success: var(--pg-ok, oklch(0.66 0.13 155));
+    --warning: oklch(0.72 0.15 60);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.5rem;
+    --sidebar: var(--pg-surface, oklch(0.982 0.0005 286));
+    --sidebar-foreground: var(--pg-ink, oklch(0.37 0.013 285.805));
+    --sidebar-primary: var(--pg-primary, oklch(0.485 0.083 183.7));
+    --sidebar-primary-foreground: var(--pg-on-primary, oklch(0.995 0 0));
+    --sidebar-accent: var(--pg-surface-2, oklch(0.945 0.002 286.3));
+    --sidebar-accent-foreground: var(--pg-ink, oklch(0.21 0.006 285.885));
+    --sidebar-border: var(--pg-line, oklch(0.928 0.003 286.3));
+    --sidebar-ring: var(--pg-primary, oklch(0.485 0.083 183.7));
+    --tabbar-h: 3.125rem;
+    --header-h: 2.875rem;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+    }
+  html {
+    @apply font-sans;
+    }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-size: 16px;
+  }
+  body {
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.003em;
+    font-feature-settings: var(--pg-font-features, "kern");
+    overscroll-behavior-y: none;
+  }
+  /* Korean: break between words, not inside them */
+  :lang(ko), .break-keep, textarea { word-break: keep-all; overflow-wrap: anywhere; }
+  h1, h2, h3 { text-wrap: balance; }
+  p { text-wrap: pretty; }
+  ::selection { background: var(--pg-selection, color-mix(in oklch, var(--primary) 18%, transparent)); }
+}
+
+/* Phone: 44 px touch targets without 44 px boxes: an invisible hit area around small buttons */
+@layer base {
+  @media (max-width: 899.98px) {
+    [data-slot="button"] { position: relative; }
+    [data-slot="button"]::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 2.75rem); height: max(100%, 2.75rem); transform: translate(-50%, -50%); }
+    [data-slot="input"], [data-slot="select-trigger"] { min-height: 2.5rem; }
+    [data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="command-item"], [data-slot="select-item"] { min-height: 2.75rem; }
+  }
+}
+
+@utility shadow-pop {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -6px rgb(0 0 0 / 0.12);
+}
+@utility shadow-dialog {
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.04), 0 24px 48px -12px rgb(0 0 0 / 0.18);
+}
+
+@keyframes tl-load { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+@keyframes tl-pulse { 50% { opacity: .35; } }
+@keyframes tl-ping { 0% { transform: scale(1); opacity: .55; } 80%, 100% { transform: scale(2.4); opacity: 0; } }
+.animate-tl-pulse { animation: tl-pulse 1.4s ease-in-out infinite; }
+.animate-tl-ping { animation: tl-ping 1.6s cubic-bezier(0, 0, .2, 1) infinite; }
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+@keyframes tl-flash { from { background: color-mix(in oklch, var(--primary) 9%, transparent); } to { background: transparent; } }
+.animate-tl-flash { animation: tl-flash 1.2s ease-out; }
+
+/* toasts in the app font (Sonner sets its own system font stack) */
+[data-sonner-toaster] { font-family: inherit !important; }

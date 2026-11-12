@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      /* behind tailscale serve at /tutor, relative URLs need the trailing slash; runs before any asset loads */
+      if (!/\/$|\.html$/.test(location.pathname)) location.replace(location.pathname + '/' + location.search + location.hash)
+    </script>
+    <script>
+      /* light or dark before the first paint, as report.js does for the pages (same key 'bn-theme': one state for
+         the app and the pages); then the app theme's tokens, which index.css maps onto the app (src/lib/theme.ts) */
+      ;(function () {
+        var r = document.documentElement, t = null, src = 'os'
+        try {
+          var m = /[?&]theme=(light|dark)\b/.exec(location.search)
+          if (m) { t = m[1]; src = 'url' } else { t = localStorage.getItem('bn-theme'); if (t) src = 'stored' }
+        } catch (e) {}
+        if (t !== 'light' && t !== 'dark') { t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; src = 'os' }
+        r.setAttribute('data-theme', t)
+        r.setAttribute('data-theme-src', src)
+        var base = /\/app\/(index\.html)?$/.test(location.pathname) ? '../' : './'
+        document.write('<link rel="stylesheet" id="app-theme-css" href="' + base + 'api/theme.css">')
+      })()
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Agent Pages" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#fafafa" />
+    <meta name="description" content="Agent Pages: the report pages and lessons an agent wrote, which project each lesson is for, and new lessons from a topic or links." />
+    <title>Agent Pages</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
