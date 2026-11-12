@@ -66,8 +66,9 @@ Source: chat with Sylvain, 2026-11-11.
 Status: accepted
 
 ## 2026-11-11 - agent-setup keeps its own report template and tutor skill until this repo is public
-Why: agent-setup is public for students and this repo is private, so a pointer would be a dead link for them.
-Rejected: replacing them with a pointer now.
+Why: agent-setup is public for students and this repo was private, so a pointer would have been a dead link for them.
+Rule: the repo is public since 2026-11-12, so the pointer can replace the copies once Sylvain says so.
+Rejected: replacing them with a pointer while the repo was private.
 Source: chat with Sylvain, 2026-11-11.
 Status: accepted
 
