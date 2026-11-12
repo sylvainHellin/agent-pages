@@ -1,7 +1,7 @@
 [project]
 name = "agent-pages"
 version = "0.1.0"
-description = "HTML pages an agent writes for a person to read and comment on (reports and lessons): template, themes, CLI, server and figure backends"
+description = "An HTML page template and reader app that lets you comment on and answer your AI agent's reports and lessons."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
