@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import tempfile
 import threading
 import unittest
@@ -14,6 +16,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from unittest import mock
+from urllib.parse import quote
 
 from agent_pages import config
 from agent_pages.server import app, jobs, reports
@@ -49,6 +52,14 @@ PLAIN_PAGE = """<!DOCTYPE html>
 </head><body><main><p>Answer.</p></main></body></html>
 """
 INPLACE_URL = "/documents/area/2026-03-04_how-it-works.html"
+REVIEW_PAGE = """<!DOCTYPE html>
+<html lang="en" data-doc-id="{id}">
+<head>
+<meta charset="utf-8">
+<title>Reviewed</title>
+<script src="file:///home/someone/code/agent-pages/template/report.js"></script>
+</head><body><main><p>Text.</p></main></body></html>
+"""
 
 
 class PageKind(unittest.TestCase):
@@ -286,6 +297,81 @@ class ServerRoutes(unittest.TestCase):
         # tum: its own tokens after report.css's, Helvetica, no Inter faces
         self.assertIn("--pg-primary: #0065BD", app.app_theme_css(config.theme_css("tum"), "tum"))
         self.assertNotIn("@font-face", app.app_theme_css(config.theme_css("tum"), "tum"))
+
+    # ---- review state of every served page (template/review-sync.js) ----
+    def boot(self, url: str) -> dict | None:
+        """The TutorSync.page() call the server put into a page's head, or None."""
+        text = self.get(url)[1].decode()
+        m = re.search(r"<script>TutorSync\.page\((.*?)\);</script>", text, re.S)
+        if m is None:
+            self.assertNotIn("review-sync.js", text)
+            return None
+        self.assertLess(text.index("/_template/review-sync.js"), text.index(m.group(0)))
+        if "report.js" in text:
+            self.assertLess(text.index(m.group(0)), text.index("report.js"))  # before report.js reads storage
+        return json.loads(m.group(1).replace("<\\/", "</"))
+
+    def write_page(self, rel: str, text: str) -> None:
+        (self.home / "docs" / rel).write_text(text)
+        self.index.scan()
+
+    def test_review_boot_in_served_pages(self):
+        b = self.boot("/documents/area/reports/page.html")  # no data-doc-id: keyed by its URL
+        self.assertRegex(b["path"], r"^reviews/r[0-9a-f]{16}$")
+        self.assertEqual((b["api"], b["state"], b.get("shared"), b.get("lesson")), ("/api/", {"updated": 0, "data": {}}, [], False))
+        self.assertIsNone(self.boot("/documents/area/plain.html"))  # no report.js, no review layer
+        self.write_page("area/ided.html", REVIEW_PAGE.format(id="ided"))
+        self.assertNotEqual(self.boot("/documents/area/ided.html")["path"], b["path"])
+
+    def test_page_review_round_trip(self):
+        self.write_page("area/ided.html", REVIEW_PAGE.format(id="ided"))
+        path = self.boot("/documents/area/ided.html")["path"]
+        status, r = self.post(f"/api/{path}", {"data": {"notes": "ends </script> here", "junk": 1}})
+        self.assertEqual(status, 200)
+        self.assertGreater(r["updated"], 0)
+        self.assertEqual(json.loads(self.get(f"/api/{path}")[1])["data"], {"notes": "ends </script> here"})
+        b = self.boot("/documents/area/ided.html")
+        self.assertEqual(b["state"]["data"], {"notes": "ends </script> here"})
+        # the same page moved to another folder keeps its id, so its comments follow it
+        (self.home / "docs" / "area" / "ided.html").rename(self.home / "docs" / "area" / "reports" / "ided.html")
+        self.index.scan()
+        self.assertEqual(self.boot("/documents/area/reports/ided.html")["state"]["data"], {"notes": "ends </script> here"})
+        self.assertEqual(self.get("/api/reviews/r0000000000000000")[0], 404)
+        self.assertEqual(self.post(f"/api/{path}", {"data": {}}, {"Origin": "https://evil.example"})[0], 403)
+        self.assertEqual(self.post(f"/api/{path}", {"data": []})[0], 400)
+
+    def test_shared_doc_id_not_synced(self):
+        self.write_page("area/twin-a.html", REVIEW_PAGE.format(id="twin"))
+        self.write_page("area/reports/twin-b.html", REVIEW_PAGE.format(id="twin"))
+        b = self.boot("/documents/area/twin-a.html")
+        self.assertEqual((b["shared"], b["state"]), (["/documents/area/reports/twin-b.html"], None))
+        self.assertEqual(self.post(f"/api/{b['path']}", {"data": {"notes": "n"}})[0], 409)
+        self.assertEqual(self.get(f"/api/{b['path']}")[0], 409)
+
+    def test_review_boot_in_lessons(self):
+        self.write_page("area/2026-03-04_how-it-works.html", LESSON_PAGE.replace("</head>", '<script src="report.js"></script></head>'))
+        slug = reports.inplace_slug(INPLACE_URL)
+        self.post(f"/api/lessons/{slug}/review", {"data": {"notes": "n"}})
+        b = self.boot(INPLACE_URL)
+        self.assertEqual((b["path"], b["lesson"], b["state"]["data"]), (f"lessons/{slug}/review", True, {"notes": "n"}))
+        (self.cfg.lessons_dir / SLUG / "index.html").write_text(
+            '<html data-doc-id="%s"><head><script src="../_assets/report.js"></script><title>A lesson</title></head><main></main></html>' % SLUG)
+        for url in (f"/lessons/{SLUG}/", f"/lessons/{SLUG}/index.html", f"/documents/lessons/{SLUG}/index.html"):
+            b = self.boot(url)
+            self.assertEqual((b["path"], b["lesson"]), (f"lessons/{SLUG}/review", True), url)
+
+    def test_page_status(self):
+        self.write_page("area/twin-a.html", REVIEW_PAGE.format(id="twin"))
+        self.write_page("area/reports/twin-b.html", REVIEW_PAGE.format(id="twin"))
+        page = self.home / "docs" / "area" / "reports" / "page.html"
+        status, body, _ = self.get("/api/pages/status?url=" + quote("/documents/area/reports/page.html"))
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"sha256": hashlib.sha256(page.read_bytes()).hexdigest(), "shared": []})
+        self.assertEqual(json.loads(self.get("/api/pages/status?url=/documents/area/twin-a.html")[1])["shared"],
+                         ["/documents/area/reports/twin-b.html"])
+        self.assertEqual(self.get(f"/api/pages/status?url=/lessons/{SLUG}/")[0], 200)
+        self.assertEqual(self.get("/api/pages/status?url=/documents/area/missing.html")[0], 404)
+        self.assertEqual(self.get("/api/pages/status?url=/documents/area/reports/secret.png")[0], 404)
 
     def test_app_and_health(self):
         self.assertIn(self.get("/")[0], (200, 503))  # 503 until apps/ui is built

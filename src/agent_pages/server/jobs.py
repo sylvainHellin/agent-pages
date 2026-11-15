@@ -87,15 +87,33 @@ def get_review(slug: str) -> dict:
     return _read(REVIEW / f"{slug}.json", {"updated": 0, "data": {}})
 
 
-def put_review(slug: str, data) -> dict:
-    if library.read_meta(slug) is None:
-        raise KeyError(slug)
+REVIEW_PARTS = ("c", "answers", "notes", "round", "prev")
+
+
+def _put(path: Path, data, extra: dict | None = None) -> dict:
     if not isinstance(data, dict):
         raise JobError("data must be an object")
     with _lock:
-        rec = {"updated": time.time(), "data": {k: data[k] for k in ("c", "answers", "notes", "round", "prev") if k in data}}
-        _write(REVIEW / f"{slug}.json", rec)
+        rec = {"updated": time.time(), "data": {k: data[k] for k in REVIEW_PARTS if k in data}, **(extra or {})}
+        _write(path, rec)
     return {"updated": rec["updated"]}
+
+
+def put_review(slug: str, data) -> dict:
+    if library.read_meta(slug) is None:
+        raise KeyError(slug)
+    return _put(REVIEW / f"{slug}.json", data)
+
+
+# A report's review, by its review id (reports.review_id): review/pages/<id>.json, with the key and page URLs it
+# was last written from, so a person reading the folder can tell which page a record belongs to.
+def get_page_review(rid: str) -> dict:
+    rec = _read(REVIEW / "pages" / f"{rid}.json", {"updated": 0, "data": {}})
+    return {"updated": rec.get("updated", 0), "data": rec.get("data", {})}
+
+
+def put_page_review(rid: str, data, key: str, urls: list[str]) -> dict:
+    return _put(REVIEW / "pages" / f"{rid}.json", data, {"key": key, "urls": urls})
 
 
 # ---------- inbox ----------

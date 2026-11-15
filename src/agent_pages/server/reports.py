@@ -10,6 +10,10 @@ A page is a lesson when its head carries <meta name="agent-pages-kind" content="
 report otherwise. The index lists reports in `pages` and keeps marked pages apart as in-place lessons, each
 under the slug inplace_slug(url); the library (library.py) shows them next to the tutor's lessons.
 set_kind() adds or removes the marker line in a page's text (POST /api/pages/kind).
+
+What a reader types into a report (comments, answers, notes) is stored on the server under the page's review id,
+review_id(key) with the key its data-doc-id (its URL when it has none), so the record follows the page through a
+move. Pages that share a data-doc-id are not synced; each scan warns about them once.
 """
 
 from __future__ import annotations
@@ -95,6 +99,16 @@ def inplace_slug(url: str) -> str:
     """The lesson slug of a marked page: a fixed prefix and a short hash of its server URL. Tutor slugs
     start with a date, so the two never clash, and the slug is safe in #/l/<slug> and /api/lessons/<slug>."""
     return INPLACE_PREFIX + hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+
+
+def review_key(doc_id: str | None, url: str) -> str:
+    """What a page's review is stored under: its data-doc-id (the template's placeholder does not count), else its URL."""
+    return doc_id if doc_id and doc_id != "report-slug" else url
+
+
+def review_id(key: str) -> str:
+    """The review record of a key, safe as a file name and in /api/reviews/<id>."""
+    return "r" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
 def hidden(parts) -> bool:
@@ -203,12 +217,19 @@ class Index:
         self.pages: list[dict] = []  # listed report pages, newest first
         self.lessons: dict[str, dict] = {}  # in-place lessons (marked pages) by slug, with their file
         self.allowed: set[Path] = set()  # resolved paths that may be served
+        self.keys: dict[str, list[str]] = {}  # review key -> URLs of the listed pages carrying it
+        self.reviews: dict[str, str] = {}  # review id of a report -> its key
+        self.page_keys: dict[Path, tuple[str, str]] = {}  # resolved report file -> (its key, its URL)
+        self.warned: set[str] = set()  # keys already reported as shared
         self.built = 0.0
         self.last_miss_scan = 0.0
 
     def scan(self) -> None:
         site = self.site
         pages, lessons, allowed = [], {}, set()
+        keys: dict[str, list[str]] = {}
+        reviews: dict[str, str] = {}
+        page_keys: dict[Path, tuple[str, str]] = {}
         for name, root in site.roots.items():
             if not root.is_dir():
                 continue
@@ -245,16 +266,25 @@ class Index:
                         "area": area_of(name, rel),
                         "kind": page_kind(text),
                     }
+                    d = DOC_ID_RE.search(text[:KIND_HEAD])
+                    doc_id = html.unescape(d.group(1)) if d else None
+                    key = review_key(doc_id, entry["url"])
+                    keys.setdefault(key, []).append(entry["url"])
                     if entry["kind"] == "lesson":
-                        d = DOC_ID_RE.search(text[:KIND_HEAD])
                         slug = inplace_slug(entry["url"])
-                        lessons[slug] = {**entry, "slug": slug, "file": real,
-                                         "doc_id": html.unescape(d.group(1)) if d else None}
+                        lessons[slug] = {**entry, "slug": slug, "file": real, "doc_id": doc_id}
                     else:
                         pages.append(entry)
+                        reviews[review_id(key)] = key
+                        page_keys[real] = (key, entry["url"])
         pages.sort(key=lambda d: d["mtime"], reverse=True)
+        shared = {k: sorted(u) for k, u in keys.items() if len(u) > 1}
+        for k in sorted(set(shared) - self.warned):
+            print(f"agent-pages serve: data-doc-id {k!r} is used by {len(shared[k])} pages, so their comments are not "
+                  f"synced: {', '.join(shared[k])}", file=sys.stderr, flush=True)
         with self.lock:
             self.pages, self.lessons, self.allowed, self.built = pages, lessons, allowed, time.time()
+            self.keys, self.reviews, self.page_keys, self.warned = keys, reviews, page_keys, set(shared)
 
     def _allow_asset(self, target: Path | None, allowed: set, depth: int = 0) -> None:
         if target is None or target.suffix.lower() not in ASSET_EXT:
@@ -276,18 +306,44 @@ class Index:
             for ref in CSS_URL_RE.findall(css):
                 self._allow_asset(self.site.target(ref, real.parent), allowed, depth + 1)
 
-    def is_allowed(self, real: Path) -> bool:
+    def _rescan_on_miss(self) -> bool:
+        """Rescan for something the index does not know (a page just written), at most every MISS_RESCAN_S."""
         with self.lock:
-            if real in self.allowed:
-                return True
             stale = time.time() - self.last_miss_scan > MISS_RESCAN_S
             if stale:
                 self.last_miss_scan = time.time()
         if stale:
             self.scan()
+        return stale
+
+    def is_allowed(self, real: Path) -> bool:
+        with self.lock:
+            if real in self.allowed:
+                return True
+        if self._rescan_on_miss():
             with self.lock:
                 return real in self.allowed
         return False
+
+    def review_of(self, real: Path) -> dict | None:
+        """The review record of a listed report: {id, key, shared: the other pages with its key}; None for others."""
+        with self.lock:
+            found = self.page_keys.get(real)
+            if found is None:
+                return None
+            key, url = found
+            return {"id": review_id(key), "key": key, "shared": [u for u in self.keys.get(key, []) if u != url]}
+
+    def review_target(self, rid: str) -> dict | None:
+        """The key and pages of a review id ({key, urls}), rescanning once for an id it does not know."""
+        for attempt in (0, 1):
+            with self.lock:
+                key = self.reviews.get(rid)
+                if key is not None:
+                    return {"key": key, "urls": list(self.keys.get(key, []))}
+            if attempt or not self._rescan_on_miss():
+                return None
+        return None
 
     def snapshot(self) -> dict:
         """The report pages (marked pages are lessons and listed by /api/lessons)."""

@@ -2,11 +2,16 @@
 
   GET  /                         the library app (apps/ui/dist, built with pnpm in apps/ui): lessons and report pages
   GET  /<root>/<path>            a report page under a configured root, file:// links rewritten; only indexed
-                                 pages and the files they reference are served (reports.py)
+                                 pages and the files they reference are served (reports.py). A page with the
+                                 review layer (report.js) gets review-sync.js and its stored review state in
+                                 its head, so comments follow the reader between devices (review_boot)
   GET  /_template/<path>         the repo template (report.css, report.js, themes, fonts, favicons); folders the
                                  config lists in template_aliases, and /lessons/_assets/, map to it too
   GET  /favicon.ico, /favicon.png, /apple-touch-icon.png   the template's icons
   GET  /api/pages, /index.json   the indexed report pages, newest first (pages with the lesson marker are lessons)
+  GET  /api/pages/status?url=u   {"sha256" of the page file, "shared": other pages with its data-doc-id}: what
+                                 `agent-pages open` waits for before it opens the server's copy
+  GET/POST /api/reviews/<id>     answers, comments, notes of a report page (409 when its data-doc-id is shared)
   POST /api/pages/kind           {"url", "kind": "lesson"|"report"}: add or remove the lesson marker in a page under a root
   GET  /lessons/<slug>/...       a lesson page and its figures; /lessons/_assets/... shared CSS/JS
   GET  /api/lessons[?project=x]  all lessons with their metadata: the tutor's, and the marked pages under the roots
@@ -33,6 +38,7 @@ The agent job runner is off (jobs.TUIOS) until it drives hc instead of tuios.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
 import os
@@ -41,7 +47,7 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .. import REPO, TEMPLATE_DIR
 from ..config import Config, ConfigError
@@ -53,6 +59,23 @@ UI = REPO / "apps" / "ui" / "dist"  # one Vite build (base './') served at / and
 ROOT_ICONS = {"/favicon.ico", "/favicon.png", "/apple-touch-icon.png"}  # from the template, for every page
 RESERVED = {"api", "app", "assets", "lessons", "_template", "healthz", "index.json", "index.html"}
 IMMUTABLE = "public, max-age=31536000, immutable"  # Vite's content-hashed files under assets/
+REVIEW_JS = "/_template/review-sync.js"
+HEAD_RE = re.compile(r"<head(?:\s[^>]*)?>", re.I)
+CHARSET_RE = re.compile(r"<meta\b[^>]*\bcharset\b[^>]*>", re.I)
+
+
+def inject_boot(text: str, boot: dict) -> str:
+    """The page with review-sync.js and its TutorSync.page() call at the top of its head (after <meta charset>),
+    so they run before report.js reads localStorage."""
+    arg = (json.dumps(boot, ensure_ascii=False).replace("</", "<\\/").replace("<!--", "<\\!--")
+           .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
+    snippet = f'\n<script src="{REVIEW_JS}"></script>\n<script>TutorSync.page({arg});</script>'
+    head = HEAD_RE.search(text)
+    if head is None:
+        return snippet.lstrip() + "\n" + text
+    charset = CHARSET_RE.search(text, head.end(), head.end() + 2000)
+    at = (charset or head).end()
+    return text[:at] + snippet + text[at:]
 mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -170,12 +193,82 @@ class Handler(BaseHTTPRequestHandler):
         if ext not in PAGE_EXT | ASSET_EXT or not real.is_file() or not self.index.is_allowed(real):
             return self.send_error(HTTPStatus.NOT_FOUND)
         if ext in PAGE_EXT:
-            try:
-                text = real.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                return self.send_error(HTTPStatus.NOT_FOUND)
-            return self._send(self.site.rewrite(text).encode("utf-8"), "text/html; charset=utf-8")
+            return self._page(real, rewrite=True)
         return self._file(real, real.parent)
+
+    def _page(self, real: Path, rewrite: bool):
+        """An HTML page with its review boot (and, under a root, its file:// links rewritten)."""
+        try:
+            text = real.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return self.send_error(HTTPStatus.NOT_FOUND)
+        if rewrite:
+            text = self.site.rewrite(text)
+        boot = self.review_boot(real, text)
+        if boot is not None:
+            text = inject_boot(text, boot)
+        return self._send(text.encode("utf-8"), "text/html; charset=utf-8")
+
+    def _lesson_slug(self, real: Path) -> str | None:
+        """The slug of a tutor lesson's page (<lessons>/<slug>/index.html), else None."""
+        try:
+            rel = real.relative_to(library.LESSONS.resolve())
+        except (OSError, ValueError):
+            return None
+        if len(rel.parts) == 2 and rel.name == "index.html" and library.page_file(rel.parts[0]) is not None:
+            return rel.parts[0]
+        return None
+
+    def review_boot(self, real: Path, text: str) -> dict | None:
+        """Where the page's review state lives and what it is now, for TutorSync.page(); None without report.js."""
+        if "report.js" not in text:
+            return None
+        slug = self._lesson_slug(real)
+        if slug is None and page_kind(text) == "lesson":
+            slug = next((s for s, e in self.index.inplace_lessons().items() if e["file"] == real), None)
+        if slug is not None:
+            try:
+                state = jobs.get_review(slug)
+            except KeyError:
+                return None
+            return {"api": "/api/", "path": f"lessons/{quote(slug)}/review", "lesson": True, "shared": [], "state": state}
+        r = self.index.review_of(real)
+        if r is None:
+            return None
+        state = None if r["shared"] else jobs.get_page_review(r["id"])
+        return {"api": "/api/", "path": f"reviews/{r['id']}", "lesson": False, "shared": r["shared"], "state": state}
+
+    def _page_status(self, url: str):
+        """The version of a page the server would serve, for `agent-pages open`."""
+        if url.startswith("/lessons/"):  # /lessons/<slug>/ or /lessons/<slug>/index.html
+            parts = url[len("/lessons/"):].strip("/").split("/")
+            real = library.page_file(parts[0]) if parts[1:] in ([], ["index.html"]) else None
+        else:
+            found = self.index.page_file(url)
+            real = found[0] if found else None
+        if real is None:
+            return self._json({"error": "no such page"}, HTTPStatus.NOT_FOUND)
+        try:
+            digest = hashlib.sha256(real.read_bytes()).hexdigest()
+        except OSError:
+            return self._json({"error": "no such page"}, HTTPStatus.NOT_FOUND)
+        r = self.index.review_of(real.resolve())
+        return self._json({"sha256": digest, "shared": r["shared"] if r else []})
+
+    def _review(self, rid: str, data=None):
+        """GET (data None) or POST a report's review record."""
+        t = self.index.review_target(rid)
+        if t is None:
+            return self._json({"error": "no such page"}, HTTPStatus.NOT_FOUND)
+        if len(t["urls"]) > 1:
+            return self._json({"error": f"data-doc-id {t['key']!r} is used by several pages: {', '.join(t['urls'])}",
+                               "urls": t["urls"]}, HTTPStatus.CONFLICT)
+        if data is None:
+            return self._json(jobs.get_page_review(rid))
+        try:
+            return self._json(jobs.put_page_review(rid, data, t["key"], t["urls"]))
+        except jobs.JobError as e:
+            return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
 
     def _ui(self, rel: str):
         """A file of the built app; rel '' is its index.html (always revalidated, it names the hashed assets)."""
@@ -264,6 +357,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.index.snapshot())
         if p == "/index.json":  # report-web's page list, kept for scripts that read it
             return self._json(self.index.snapshot()["pages"])
+        if p == "/api/pages/status":
+            return self._page_status(parse_qs(url.query).get("url", [""])[0])
+        if p.startswith("/api/reviews/"):
+            return self._review(p[len("/api/reviews/"):].strip("/"))
         if p.startswith("/_template/"):
             return self._template(p[len("/_template/"):])
         if p in ROOT_ICONS:
@@ -280,6 +377,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", e["url"])
             return self.end_headers()
         if p.startswith("/lessons/"):
+            target = library.LESSONS / p[len("/lessons/"):]
+            if p.endswith("/"):
+                target = target / "index.html"
+            try:
+                real = target.resolve()
+            except OSError:
+                real = None
+            if real is not None and real.is_file() and self._lesson_slug(real) is not None:
+                return self._page(real, rewrite=False)
             return self._file(library.LESSONS / p[len("/lessons/"):], library.LESSONS)
         if p == "/lessons":
             self.send_response(HTTPStatus.MOVED_PERMANENTLY)
@@ -364,6 +470,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": f"no lesson {slug}"}, HTTPStatus.NOT_FOUND)
             except (jobs.JobError, library.MetaError) as e:
                 return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+        if p.startswith("/api/reviews/"):
+            if not self._same_origin():
+                return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
+            try:
+                data = self._body(2_000_000).get("data")
+            except library.MetaError as e:
+                return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+            return self._review(p[len("/api/reviews/"):].strip("/"), data if data is not None else "")
         if p.startswith("/api/lessons/") and p.endswith("/review"):
             if not self._same_origin():
                 return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
