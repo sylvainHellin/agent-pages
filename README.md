@@ -54,7 +54,7 @@ The keys a new machine usually sets:
 
 ```bash
 agent-pages new <path.html> [--title T] [--id slug] [--theme T]   # report page from template/report.html
-agent-pages open <path>                                           # open in the browser (Mac), or queue it for the Mac
+agent-pages open <path>                                           # open the server's copy (Mac), or queue it for the Mac
 agent-pages url <path>                                            # server link of a page under a configured root
 agent-pages drain                                                 # Mac LaunchAgent: open the queued pages
 agent-pages lesson new <slug> --title T [--project ID] [...]      # lesson folder in lessons_dir
@@ -63,6 +63,7 @@ agent-pages config                                                # effective co
 ```
 
 New pages link `template/` by `file://` path, with the theme and the Vim keys default from the config, so they open from disk with no server.
+`open` opens a page under a configured root from the server once it serves the current version of the file (it waits up to 15 s for Syncthing), so its comments sync between devices; otherwise it opens the file and says why.
 
 Tests: `uv run python -m unittest discover -s tests`.
 
@@ -70,6 +71,7 @@ Tests: `uv run python -m unittest discover -s tests`.
 
 - Lessons: `<lessons_dir>/<YYYY-MM-DD>_<slug>/` with `index.html`, `lesson.json` and `figures/`; `<lessons_dir>/_assets` is a symlink to `template/` (`agent-pages lesson new` creates it).
 - Server state (review sync, inbox, jobs, last opened): `<lessons_dir>/_data/`, never served as files; `pages.json` there holds the status, projects and tags of the marked pages read in place.
+- Comments, answers and notes of every page the server serves: `<lessons_dir>/_data/review/` (lessons by slug, report pages under `pages/` by their `data-doc-id`); a page opened as a file keeps them in that browser only.
 - Projects: the open notes in `<vault>/02-areas/` and `<vault>/01-projects/`; the id is the note name, and a lesson created inside the repo a note names in `repo:` is linked to it.
 
 ## Serve

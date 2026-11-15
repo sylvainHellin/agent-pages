@@ -1,5 +1,15 @@
 # Decision log
 
+## 2026-11-15 - Comments of every served page sync through the server, keyed by data-doc-id
+Why: comments stayed in the browser of the device that wrote them, so a review could not continue on another machine.
+Rule: the server adds review-sync.js to every page it serves and stores its state in <lessons_dir>/_data/review/pages/; a data-doc-id used by two pages is refused and logged.
+Rule: the merge records deletions, so a comment deleted on one device does not come back from another.
+Rule: agent-pages open opens the server's copy once it serves the current file (15 s wait), else the file.
+Rule: comments already stored in a browser from file:// pages are left there; no import or migration.
+Rejected: sync code inside report.js (the public template must work as a plain file); keys by path (a move loses the comments); syncing only the app's Reports view (open shows pages outside it).
+Source: chat with Sylvain, 2026-11-15.
+Status: accepted
+
 ## 2026-11-11 - Lessons live in one central folder, ~/Documents/perso/03-resources/lessons, and the tutor skill writes there
 Why: the app indexes one folder; Syncthing already mirrors ~/Documents between the Mac and the home server.
 Rejected: keeping each lesson next to its topic and indexing all of ~/Documents (more code, slower index).

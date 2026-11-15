@@ -154,6 +154,8 @@ Each comment heading names its section when it has one; the body quotes the sele
 The selector is written against the page source as the browser parses it (so a table row path includes `tbody`), with the wrappers and controls added by `report.js` left out; an element with an id is addressed by it, as in `h3#smaller-lessons`.
 
 Comments, answers and notes persist in the browser's localStorage under the page's `data-doc-id` (the file path when it is missing), until a revised page sweeps the exported ones or Clear all deletes them.
+When `agent-pages serve` serves the page, it adds `review-sync.js`, which mirrors that state to the server under the same key, so it follows the reader to other devices; a deletion stays deleted when two devices merge.
+A `data-doc-id` used by two pages is not synced (the server logs both paths): give each page its own id.
 Clear all opens an in-page dialog, "Clear all comments?", that lists what it deletes: the number of comments, the number of saved answers (every question with a choice, a text or a note, including questions no longer on the page) and the general notes, each only when present.
 Cancel has the focus, and Esc or a click on the backdrop also cancels; the red Clear all button deletes.
 Tab stays inside the dialog, page shortcuts are off while it is open, and it never prints.
