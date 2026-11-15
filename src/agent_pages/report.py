@@ -5,6 +5,10 @@ On another machine (a home server), `open` writes a JSON request into the queue 
 [remote_open] table, which a file sync (Syncthing) carries to the Mac; there a LaunchAgent runs
 `agent-pages drain` when the folder changes, waits for the page itself to arrive, opens it and deletes the request.
 Without [remote_open], `open` on Linux falls back to xdg-open.
+
+A page under the served roots opens from the server (its base_url link) once the server serves the current version,
+so what the reader types into it syncs between devices; otherwise, after OPEN_WAIT_S or at once when the server is
+unreachable, the file itself opens and its comments stay in that browser.
 """
 
 from __future__ import annotations
@@ -19,8 +23,10 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from .config import Config
 from .page import report_page
@@ -32,6 +38,8 @@ UNSYNCED_PARTS = {".stversions", ".stfolder"}
 OPENABLE = {".html", ".htm", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
 WAIT_S = 120  # how long one drain run waits for pages still in transit
 STALE_S = 24 * 3600  # requests older than this are dropped unopened
+OPEN_WAIT_S = 15  # how long `open` waits for the server to serve the current version of a page
+PAGE_SUFFIXES = {".html", ".htm"}
 
 
 def die(msg: str, code: int = 1):
@@ -92,18 +100,71 @@ def cmd_new(cfg: Config, args) -> None:
 # ------------------------------------------------------------------------ open
 
 
+def fetch_status(cfg: Config, path: str) -> dict | None:
+    """The server's GET /api/pages/status for a page path: None when it does not serve the page,
+    OSError when it cannot be reached."""
+    url = f"{cfg.base_url}/api/pages/status?url={quote(path, safe='')}"
+    try:
+        with urllib.request.urlopen(url, timeout=4) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise OSError(f"HTTP {e.code}") from e
+    except ValueError as e:
+        raise OSError(f"bad answer: {e}") from e
+
+
+def served_url(cfg: Config, real: Path, fetch=None, wait: float = OPEN_WAIT_S, sleep=time.sleep) -> tuple[str | None, list[str]]:
+    """The server link of a page once the server serves this version of it, or None; and notes for the user."""
+    fetch = fetch or fetch_status
+    if real.suffix.lower() not in PAGE_SUFFIXES:
+        return None, []
+    try:
+        url = page_url(cfg, real)
+    except ValueError:
+        return None, []
+    path = url[len(cfg.base_url):]
+    digest = sha256(real)
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            st = fetch(cfg, path)
+        except OSError as e:
+            return None, [f"the server at {cfg.base_url} is unreachable ({e}), so the file opens and comments stay in this browser"]
+        if st and st.get("sha256") == digest:
+            notes = []
+            if st.get("shared"):
+                notes.append(f"this page's data-doc-id is also used by {', '.join(st['shared'])}, so its comments "
+                             "do not sync; give the page its own data-doc-id")
+            return url, notes
+        if time.monotonic() >= deadline:
+            return None, [f"the server does not serve the current version after {wait:.0f} s, "
+                          "so the file opens and comments stay in this browser"]
+        sleep(1)
+
+
+def warn(notes: list[str]) -> None:
+    for n in notes:
+        print(f"agent-pages: {n}", file=sys.stderr)
+
+
 def cmd_open(cfg: Config, args) -> None:
     target = Path(args.path).expanduser().absolute()
     if not target.is_file():
         die(f"{target} is not a file")
     if IS_MAC:
-        sys.exit(subprocess.call(["open", "-g", str(target)]))
+        url, notes = served_url(cfg, target.resolve())
+        warn(notes)
+        sys.exit(subprocess.call(["open", "-g", url or str(target)]))
 
     ro = cfg.remote_open
     if not (ro.queue and ro.synced):
         opener = shutil.which("xdg-open")
         if opener:
-            sys.exit(subprocess.call([opener, str(target)]))
+            url, notes = served_url(cfg, target.resolve())
+            warn(notes)
+            sys.exit(subprocess.call([opener, url or str(target)]))
         die("no browser here and no [remote_open] queue in the config; see config.example.toml")
 
     real = target.resolve()
@@ -114,6 +175,8 @@ def cmd_open(cfg: Config, args) -> None:
         die(f"{real.suffix or 'files without an extension'} cannot be opened remotely; "
             f"allowed: {' '.join(sorted(OPENABLE))}")
 
+    url, notes = served_url(cfg, real)
+    warn(notes)
     now = time.time()
     req_id = f"{time.strftime('%Y%m%dT%H%M%S', time.gmtime(now))}-{secrets.token_hex(4)}"
     request = {
@@ -126,13 +189,19 @@ def cmd_open(cfg: Config, args) -> None:
         "time_iso": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(now)),
         "host": socket.gethostname(),
     }
+    if url:
+        request["url"] = url  # the Mac opens the server's copy at once, without waiting for the file
     ro.queue.mkdir(parents=True, exist_ok=True)
     final = ro.queue / f"{req_id}.json"
     part = ro.queue / f".{req_id}.json.part"  # hidden and not .json, so drain never reads it half-written
     part.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
     os.replace(part, final)
-    print(f"queued for the Mac: {mac}")
-    print("it opens there once the sync has delivered the page (usually a few seconds)")
+    if url:
+        print(f"queued for the Mac: {url}")
+        print("it opens there within seconds, from the server, so comments sync between devices")
+    else:
+        print(f"queued for the Mac: {mac}")
+        print("it opens there once the sync has delivered the page (usually a few seconds)")
 
 
 # ----------------------------------------------------------------------- drain
@@ -219,8 +288,20 @@ def settled(target: Path) -> bool:
     return a.st_size == b.st_size and a.st_mtime == b.st_mtime and a.st_size > 0
 
 
-def open_on_mac(d: Drain, p: Path, req: dict, done: Done, note: str = "") -> None:
-    target = Path(req["mac_path"])
+def request_url(cfg: Config, req: dict) -> str | None:
+    """The server link a request carries, when it points at the configured server (a synced folder must not
+    be a way to open any web address on the Mac)."""
+    url = req.get("url")
+    if not isinstance(url, str) or not cfg.base_url:
+        return None
+    a, b = urlsplit(url), urlsplit(cfg.base_url)
+    if (a.scheme, a.netloc) != (b.scheme, b.netloc) or not a.path.startswith("/"):
+        return None
+    return url
+
+
+def open_on_mac(d: Drain, p: Path, req: dict, done: Done, note: str = "", url: str | None = None) -> None:
+    target = url or Path(req["mac_path"])
     rc = subprocess.call(["/usr/bin/open", "-g", str(target)])
     if rc == 0:
         done.add(req["id"])
@@ -269,6 +350,10 @@ def cmd_drain(cfg: Config, _args) -> None:
             if target.suffix.lower() not in OPENABLE or not target.is_relative_to(d.mac_home):
                 d.log(f"refused request {req['id']}: {target} is not an openable file under {d.mac_home}")
                 remove(p)
+                continue
+            url = request_url(cfg, req)
+            if url:
+                open_on_mac(d, p, req, done, url=url)
                 continue
             state = check(req)
             if state == "ok" and settled(target):
