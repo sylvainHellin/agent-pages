@@ -54,6 +54,7 @@ The keys a new machine usually sets:
 
 ```bash
 agent-pages new <path.html> [--title T] [--id slug] [--theme T]   # report page from template/report.html
+agent-pages session <path> [--add [ID]]                           # agent sessions that wrote a page (add the current one)
 agent-pages open <path>                                           # open the server's copy (Mac), or queue it for the Mac
 agent-pages url <path>                                            # server link of a page under a configured root
 agent-pages drain                                                 # Mac LaunchAgent: open the queued pages
@@ -63,6 +64,7 @@ agent-pages config                                                # effective co
 ```
 
 New pages link `template/` by `file://` path, with the theme and the Vim keys default from the config, so they open from disk with no server.
+They record the id of the agent session that wrote them (`$AGENT_PAGES_SESSION`, else `$PI_SESSION_ID`) in `<meta name="agent-pages-session">`, and the comment export repeats it, so an agent in a later session can look up the conversation behind the page.
 `open` opens a page under a configured root from the server once it serves the current version of the file (it waits up to 15 s for Syncthing), so its comments sync between devices; otherwise it opens the file and says why.
 
 Tests: `uv run python -m unittest discover -s tests`.

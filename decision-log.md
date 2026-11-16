@@ -1,5 +1,14 @@
 # Decision log
 
+## 2026-11-16 - A page records the agent sessions that wrote it, and the export names them
+Why: a comment export pasted into a new session lost the conversation behind the page, so the new agent answered without it.
+Rule: agent-pages new writes <meta name="agent-pages-session" content="<ids>"> from --session, else $AGENT_PAGES_SESSION, else $PI_SESSION_ID; ids are space-separated, oldest first.
+Rule: an agent revising the page from another session appends its id with agent-pages session <path> --add; the export prints "Written in agent sessions: ..." under the file path.
+Rule: existing pages get no backfill; the line appears once a session creates or revises them.
+Rejected: only the creating session (a revising session holds context too); a server-side index of pages to sessions (the id has to travel with the file and the export).
+Source: chat with Sylvain, 2026-11-16.
+Status: accepted
+
 ## 2026-11-15 - Comments of every served page sync through the server, keyed by data-doc-id
 Why: comments stayed in the browser of the device that wrote them, so a review could not continue on another machine.
 Rule: the server adds review-sync.js to every page it serves and stores its state in <lessons_dir>/_data/review/pages/; a data-doc-id used by two pages is refused and logged.

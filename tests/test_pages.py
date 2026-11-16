@@ -131,6 +131,29 @@ class NewPage(TempHome):
         self.assertIn('<html data-vim-default="off"', page)
         self.assertIn('data-doc-id="custom-id"', page)
 
+    def test_sessions(self):
+        self.cfg_file.write_text("")
+        dest = self.tmp / "s.html"
+        with mock.patch.dict(os.environ, {"AGENT_PAGES_SESSION": "", "PI_SESSION_ID": "pi-1"}):
+            self.run_cli("new", str(dest))
+            self.assertIn('<meta charset="utf-8">\n<meta name="agent-pages-session" content="pi-1">\n', dest.read_text())
+            self.assertEqual(self.run_cli("session", str(dest), "--add").split(), ["pi-1"])
+        with mock.patch.dict(os.environ, {"AGENT_PAGES_SESSION": "other-2"}):
+            self.assertEqual(self.run_cli("session", str(dest), "--add").split(), ["pi-1", "other-2"])
+        self.assertEqual(self.run_cli("session", str(dest), "--add", "x-3").split(), ["pi-1", "other-2", "x-3"])
+        self.assertEqual(dest.read_text().count("agent-pages-session"), 1)
+        plain = self.tmp / "n.html"
+        with mock.patch.dict(os.environ, {"AGENT_PAGES_SESSION": "", "PI_SESSION_ID": ""}):
+            self.run_cli("new", str(plain), "--session", "flag-4")
+            self.assertEqual(self.run_cli("session", str(plain)).split(), ["flag-4"])
+            self.run_cli("new", str(self.tmp / "none.html"))
+            self.assertNotIn("agent-pages-session", (self.tmp / "none.html").read_text())
+
+    def test_session_goes_after_the_kind_line(self):
+        from agent_pages.page import add_session
+        page = '<head>\n<meta charset="utf-8">\n<meta name="agent-pages-kind" content="lesson">\n<title>t</title>'
+        self.assertIn('content="lesson">\n<meta name="agent-pages-session" content="a">\n<title>', add_session(page, "a"))
+
     def test_lesson_new(self):
         self.cfg_file.write_text(f'lessons_dir = "{self.tmp / "lessons"}"\nlesson_theme = "tum"\n')
         self.run_cli("lesson", "new", "Row vs column", "--title", "Rows", "--date", "2026-11-11")

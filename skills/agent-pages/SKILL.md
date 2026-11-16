@@ -21,6 +21,7 @@ A page is an HTML file whose `<main>` holds only content; the shared template ad
 
 1. `agent-pages new <dir>/YYYY-MM-DD_<slug>.html --title "..."`, next to the work it belongs to (the repo, the project folder).
    `--theme <name|path.css>` overrides the configured theme for one page; `--id` sets the storage key when the file stem is not the slug.
+   It records the current agent session (`$AGENT_PAGES_SESSION`, else `$PI_SESSION_ID`; `--session <id>` when the harness exposes neither) in `<meta name="agent-pages-session">`.
 2. Replace everything inside `<main>`; leave `<head>` as it is, and add no `<style>`, `<script>`, wrapper divs or ids.
 3. `agent-pages open <path>` opens it in the browser; the hand-over names the path.
 4. `agent-pages url <path>` prints the server link of a page under a configured root; notes, mails and other devices get that link, never a `file://` path.
@@ -53,8 +54,9 @@ Read `figures.md` next to this file before adding one: existing visuals first, t
 
 1. The reader comments on text or elements, answers the cards and writes general notes, then pastes the Markdown export into the chat.
    Each comment quotes its passage or names its element by CSS selector; each answer carries its card's `data-id`.
-2. Address every comment and answer; an ambiguous one gets a question back, not a guess.
-3. Revise the same file in place: rewrite what the comments point at, remove the answered cards, add cards for what is still open, and hand the path back.
+   The export's line "Written in agent sessions: ..." names the sessions that wrote the page.
+2. When those sessions are not the current one, read what they discussed in the harness's session history first, then address every comment and answer; an ambiguous one gets a question back, not a guess.
+3. Revise the same file in place: rewrite what the comments point at, remove the answered cards, add cards for what is still open, run `agent-pages session <path> --add` so the page lists this session too, and hand the path back.
 4. Leave the stored comments alone: on its next load the revised page clears what the export carried and marks the blocks that changed.
 5. A decision settled in the export also goes wherever the project records its decisions.
 

@@ -1,6 +1,7 @@
 """agent-pages: HTML pages an agent writes for a person to read and comment on, reports and lessons.
 
   agent-pages new <path> [--title T] [--id slug] [--theme T]   create a report page from the template
+  agent-pages session <path> [--add [ID]]                      print (or add) the agent sessions that wrote a page
   agent-pages open <path>                                      open a page in the Mac browser, from either machine
   agent-pages url <path>                                       print the server link of a page
   agent-pages drain                                            Mac only: open the pages another machine queued
@@ -34,7 +35,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", help="sets <title> and the h1")
     p.add_argument("--id", help="data-doc-id slug (default: the file stem)")
     p.add_argument("--theme", help="theme for this page (default: the config's theme)")
+    p.add_argument("--session", help="id of the agent session writing the page "
+                   "(default: $AGENT_PAGES_SESSION, else $PI_SESSION_ID)")
     p.set_defaults(fn=report.cmd_new)
+    p = sub.add_parser("session", help="print the agent sessions that wrote a page, oldest first")
+    p.add_argument("path")
+    p.add_argument("--add", nargs="?", const="", metavar="ID",
+                   help="first append this session (default: the current one) unless the page lists it")
+    p.set_defaults(fn=report.cmd_session)
     p = sub.add_parser("open", help="open a page in the Mac browser, from either machine")
     p.add_argument("path")
     p.set_defaults(fn=report.cmd_open)

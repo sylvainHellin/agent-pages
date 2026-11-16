@@ -1,4 +1,5 @@
-"""agent-pages new | open | url | drain: create report pages, open them in the Mac browser, print their links.
+"""agent-pages new | session | open | url | drain: create report pages, record the sessions that wrote them,
+open them in the Mac browser, print their links.
 
 On the Mac, `open` runs macOS `open -g` directly, so the browser gets the tab without coming to the front.
 On another machine (a home server), `open` writes a JSON request into the queue folder of the config's
@@ -29,7 +30,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 from .config import Config
-from .page import report_page
+from .page import add_session, current_session, page_sessions, report_page
 
 IS_MAC = platform.system() == "Darwin"
 # Paths a file sync never carries inside the synced folders.
@@ -85,7 +86,8 @@ def cmd_new(cfg: Config, args) -> None:
     dest = Path(args.path).expanduser().absolute()
     if dest.exists():
         die(f"{dest} already exists; refusing to overwrite")
-    page = report_page(args.title, args.id or dest.stem, cfg.theme_css(args.theme), cfg.vim_default)
+    page = report_page(args.title, args.id or dest.stem, cfg.theme_css(args.theme), cfg.vim_default,
+                       args.session or current_session())
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(dest, "x", encoding="utf-8") as f:
@@ -95,6 +97,30 @@ def cmd_new(cfg: Config, args) -> None:
     if not IS_MAC and cfg.remote_open.synced and mac_path_for(cfg, dest.resolve()) is None:
         print(f"agent-pages: warning: {dest} does not reach the Mac; {synced_hint(cfg)}", file=sys.stderr)
     print(dest)
+
+
+# --------------------------------------------------------------------- session
+
+
+def cmd_session(cfg: Config, args) -> None:
+    """Print the ids of the sessions that wrote a page, one per line, oldest first; --add appends one first."""
+    path = Path(args.path).expanduser()
+    try:
+        page = path.read_text(encoding="utf-8")
+    except OSError as e:
+        die(f"{path}: {e.strerror or e}")
+    if args.add is not None:
+        session = args.add or current_session()
+        if not session:
+            die("no session id: pass one to --add or set AGENT_PAGES_SESSION")
+        revised = add_session(page, session)
+        if revised == page and session not in page_sessions(page):
+            die(f"{path}: no <meta charset> line to put the session after")
+        if revised != page:
+            path.write_text(revised, encoding="utf-8")
+            page = revised
+    for session in page_sessions(page):
+        print(session)
 
 
 # ------------------------------------------------------------------------ open

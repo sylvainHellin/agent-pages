@@ -1975,6 +1975,10 @@
       out.push('# Comments on ' + (norm(document.title) || base));
       out.push('');
       out.push('File: `' + filePath + '`');
+      var sessions = document.querySelector('meta[name="agent-pages-session"]');
+      sessions = sessions ? (sessions.getAttribute('content') || '').trim().split(/\s+/).filter(Boolean) : [];
+      if (sessions.length) out.push('Written in agent session' + (sessions.length > 1 ? 's' : '') + ': ' +
+        sessions.map(function (s) { return '`' + s + '`'; }).join(', ') + '.');
       out.push(n + (n === 1 ? ' comment' : ' comments') + (nq ? ', ' + answeredCount() + ' of ' + nq + ' questions answered' : '') + '.');
       out.push('');
       if (notes.trim()) {

@@ -43,6 +43,8 @@ To switch an existing page, change its theme `<link>` line.
    `agent-pages new <dest>/2026-10-16_catch-up-overview.html --title "Project catch-up"`
    It copies the skeleton, links the template and the theme, and sets `<title>`, the h1 and `data-doc-id` (default: the file stem).
 2. Comments and answers are stored in the browser under `data-doc-id`, so they survive a rename or a move of the file; pass `--id` for a slug other than the file stem.
+   When the agent's session id is known (`--session`, else `$AGENT_PAGES_SESSION`, else pi's `$PI_SESSION_ID`), `new` also writes `<meta name="agent-pages-session" content="<id>">` after the charset line.
+   An agent in another session that revises the page appends its own id with `agent-pages session <path> --add`, so the line lists every session that wrote the page, oldest first, and the export names them.
 3. Keep the title short, eight words at most naming the subject (`How BrowserOS neo works`), the same in `<title>` and the h1; the top bar, the tab and the library list show it.
 4. Replace everything inside `<main>` with the content.
    Leave the `<link>` and `<script>` lines in `<head>` as they are, and add no `<style>` or `<script>` of your own.
@@ -108,6 +110,7 @@ Choice questions also get an optional note field.
    Cmd+Shift+X works from anywhere on the page, a text box included, and behaves like the top bar button.
    When the clipboard is blocked, the top bar button downloads the file instead, and the panel offers Download .md.
 4. The agent revises the same file in place, removes the question cards that are answered, and hands the path back.
+   When the export names sessions other than its own, the agent reads what they discussed in its harness's session history before it answers, and adds its own id with `agent-pages session <path> --add`.
 5. On the next load the page sees that its content changed and clears what the last export carried, so no manual cleanup is needed (see Review rounds below).
    The bin button in the top bar or Clear all in the panel still wipes everything at any time, after a confirmation dialog.
 6. The revised page marks what changed since the version the reader exported, and folds the sections already read that did not change (see Changes since the last read below).
@@ -149,7 +152,7 @@ A card with a note but no choice is marked "no choice yet".
 A question with nothing saved shows as a single muted line, "Question 1, open", and clicking a card or a line scrolls to the question card and flashes it.
 Answers saved for question cards that a revision has since removed are counted in one line at the end.
 
-The export follows the panel order: the page title and file path, the general notes, the comments in document order, and one answer per question card (its `data-id`, the question, the choice or text and the note).
+The export follows the panel order: the page title and file path, the agent sessions that wrote the page (from its `agent-pages-session` line, when it has one), the general notes, the comments in document order, and one answer per question card (its `data-id`, the question, the choice or text and the note).
 Each comment heading names its section when it has one; the body quotes the selected text or the first 120 characters of the element, and an element comment adds a CSS selector such as `main > table:nth-of-type(1) > tbody > tr:nth-of-type(3) > td:nth-of-type(1)`.
 The selector is written against the page source as the browser parses it (so a table row path includes `tbody`), with the wrappers and controls added by `report.js` left out; an element with an id is addressed by it, as in `h3#smaller-lessons`.
 
