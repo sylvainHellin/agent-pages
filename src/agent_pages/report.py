@@ -31,7 +31,7 @@ from urllib.parse import quote, urlsplit
 
 from .config import Config
 from .page import add_session, current_session, page_sessions, report_page
-from .server.reports import hidden
+from .server.reports import servable
 
 IS_MAC = platform.system() == "Darwin"
 # Paths a file sync never carries inside the synced folders.
@@ -408,17 +408,16 @@ def cmd_drain(cfg: Config, _args) -> None:
 
 
 def page_url(cfg: Config, path: Path) -> str:
-    """The server link of a file under one of the configured roots (raises ValueError otherwise)."""
+    """The server link of a file under one of the configured roots (raises ValueError otherwise), judged as the
+    server judges it: on the file the path resolves to after every symlink (reports.servable)."""
     real = path.expanduser().absolute().resolve()
-    for name, root in cfg.roots.items():
-        try:
-            rel = real.relative_to(root.resolve())
-        except ValueError:
-            continue
-        if hidden(rel.parts):
-            raise ValueError(f"{real} sits in a hidden or skipped folder (only a repo's .sync is served), "
-                             "which the server does not serve")
+    found = servable(real, cfg.roots)
+    if found is not None:
+        name, rel = found
         return f"{cfg.base_url}/{name}/{quote(rel.as_posix())}"
+    if any(real.is_relative_to(root.resolve()) for root in cfg.roots.values()):
+        raise ValueError(f"{real} sits in a hidden or skipped folder (only a repo's .sync is served), "
+                         "which the server does not serve")
     roots = ", ".join(f"{k}={v}" for k, v in cfg.roots.items()) or "none configured"
     raise ValueError(f"{real} is outside the served roots ({roots}), so it has no link")
 

@@ -1,5 +1,14 @@
 # Decision log
 
+## 2026-11-18 - What is served is decided by the file a path resolves to, after every symlink
+Why: the hidden-folder check read only the requested path, so a harmless-looking link (notes/link.html -> ../.git/config, a folder link notes/g -> ../.git, a link out of every root) served private content; a review found it on 60550a8 and its parent.
+Rule: a file is served only when its resolved path is inside a resolved root with no hidden() segment below it; reports.servable() is the one check for pages, assets, the listing and agent-pages url and open.
+Rule: a link to a servable page keeps working at the link's URL and is listed once, under the target's own URL, so the target's comments keep syncing.
+Rule: the lessons folder's _assets link into the repo template keeps working through the template route, which runs before this check.
+Rejected: refusing every symlink (links between servable folders are legitimate); following links only inside one root (a link to a servable file in another root is harmless).
+Source: dispatch brief from Sylvain's session, 2026-11-18.
+Status: accepted
+
 ## 2026-11-18 - A repo's .sync folder under a root is served; every other hidden folder stays private
 Why: the skills tell agents to save a page in the repo's .sync/, and ~/Documents/basenord became a git repo with a real .sync/ folder, which the server and agent-pages url refused as hidden.
 Rule: a path segment named exactly .sync passes the hidden-folder check in the server (pages, their assets, the index and the app's listing) and in agent-pages url and open; reports.hidden() is the one check for both.

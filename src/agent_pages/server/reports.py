@@ -125,6 +125,22 @@ def skipped_dir(name: str) -> bool:
     return (name.startswith(".") and name not in SERVED_DOT_DIRS) or name in SKIP_DIRS
 
 
+def servable(path: Path, roots: dict[str, Path]) -> tuple[str, Path] | None:
+    """The first root (in config order) that may serve a file, and the file's path under it, judged on the file
+    the path resolves to after every symlink: inside the resolved root, with no hidden() segment below it. None
+    for anything else, so a link whose own path is harmless but whose target is private or outside every root
+    is refused. The server (pages, assets, listing) and agent-pages url and open share this one check."""
+    real = _resolve(path)
+    for name, root in roots.items():
+        try:
+            rel = real.relative_to(_resolve(Path(root)))
+        except ValueError:
+            continue
+        if not hidden(rel.parts):
+            return name, rel
+    return None
+
+
 def _under(path: Path, folder: Path) -> Path | None:
     """path relative to folder, or None; tries the path as given and resolved (symlinked roots)."""
     for p in (path, _resolve(path)):
@@ -240,6 +256,7 @@ class Index:
         keys: dict[str, list[str]] = {}
         reviews: dict[str, str] = {}
         page_keys: dict[Path, tuple[str, str]] = {}
+        listed: set[Path] = set()  # a page reached through a symlink as well is listed once, under its target
         for name, root in site.roots.items():
             if not root.is_dir():
                 continue
@@ -256,24 +273,25 @@ class Index:
                     except OSError:
                         continue
                     real = p.resolve()
+                    found = servable(real, site.roots)
+                    if found is None:
+                        continue  # a symlink into a hidden folder or out of every root: never served or listed
                     allowed.add(real)
                     for ref in REF_RE.findall(text):
                         self._allow_asset(site.target(ref, p.parent), allowed)
-                    if not site.listed(real):
+                    if real in listed or not site.listed(real):
                         continue
+                    listed.add(real)
                     m = TITLE_RE.search(text[:200_000])
                     title = html.unescape(re.sub(r"\s+", " ", m.group(1))).strip() if m else ""
-                    try:
-                        rel = real.relative_to(rroot)
-                    except ValueError:
-                        continue  # a file symlink out of the root: served if referenced, never listed
+                    home_root, rel = found  # the target's own URL, the one agent-pages url prints
                     entry = {
                         "title": title or p.stem,
-                        "url": f"/{name}/" + quote(rel.as_posix()),
-                        "path": site.display(root / rel),
+                        "url": f"/{home_root}/" + quote(rel.as_posix()),
+                        "path": site.display(site.roots[home_root] / rel),
                         "mtime": st.st_mtime,
-                        "root": name,
-                        "area": area_of(name, rel),
+                        "root": home_root,
+                        "area": area_of(home_root, rel),
                         "kind": page_kind(text),
                     }
                     d = DOC_ID_RE.search(text[:KIND_HEAD])
@@ -305,8 +323,8 @@ class Index:
                 return
         except OSError:
             return
-        if not any(_under(real, r) is not None for r in self.site.roots.values()):
-            return  # the template and anything outside the roots has its own route or none
+        if servable(real, self.site.roots) is None:
+            return  # the template has its own route; hidden folders and anything outside the roots have none
         allowed.add(real)
         if real.suffix.lower() == ".css" and depth < 3:
             try:
@@ -327,6 +345,8 @@ class Index:
         return stale
 
     def is_allowed(self, real: Path) -> bool:
+        if servable(real, self.site.roots) is None:
+            return False
         with self.lock:
             if real in self.allowed:
                 return True
@@ -366,7 +386,8 @@ class Index:
 
     def page_file(self, url: str) -> tuple[Path, str] | None:
         """The file behind a page's server URL and its root name, when the URL names a page that may be served
-        under a root. None for anything else (no such root, '..', hidden folders, other file types)."""
+        under a root. None for anything else (no such root, '..', hidden folders, other file types), judged on
+        the requested path and on the file it resolves to (servable())."""
         name, _, rest = unquote(url).lstrip("/").partition("/")
         root = self.site.roots.get(name)
         rel = Path(rest)
@@ -376,7 +397,8 @@ class Index:
             real = (root / rel).resolve()
         except OSError:
             return None
-        if _under(real, root) is None or not real.is_file() or not self.is_allowed(real):
+        if real.suffix.lower() not in PAGE_EXT or servable(real, self.site.roots) is None or not real.is_file() \
+                or not self.is_allowed(real):
             return None
         return real, name
 

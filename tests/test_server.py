@@ -400,6 +400,76 @@ class ServerRoutes(unittest.TestCase):
                       (".syncthing", "x.html"), ("x", ".sync.bak", "y.html")):
             self.assertTrue(reports.hidden(parts), parts)
 
+    # ---- symlinks: what is served is decided by the file a link resolves to ----
+    def refused(self, url: str) -> None:
+        self.assertEqual(self.get(url)[0], 404, url)
+        self.assertEqual(self.get("/api/pages/status?url=" + quote(url))[0], 404, url)
+
+    def listed_titles(self) -> list[str]:
+        return [p["title"] for p in json.loads(self.get("/api/pages")[1])["pages"]]
+
+    def test_file_symlink_into_hidden_folder_refused(self):
+        docs = self.home / "docs"
+        (docs / ".git").mkdir()
+        (docs / ".git" / "config").write_text("[remote] token = secret")
+        (docs / ".hidden" / "f.png").write_bytes(b"\x89PNG hidden")
+        (docs / "area" / "cfg.html").symlink_to("../.git/config")
+        (docs / "area" / "link.html").symlink_to("../.hidden/x.html")
+        (docs / "area" / "leak.png").symlink_to("../.hidden/f.png")
+        (docs / "area" / "uses-leak.html").write_text('<title>Uses leak</title><img src="leak.png">')
+        self.index.scan()
+        self.refused("/documents/area/cfg.html")
+        self.refused("/documents/area/link.html")
+        self.assertEqual(self.get("/documents/area/leak.png")[0], 404)
+        self.assertEqual(self.get("/documents/area/uses-leak.html")[0], 200)  # the page itself is fine
+        self.assertNotIn("Hidden", self.listed_titles())
+        self.assertFalse(any(".git" in p["url"] or ".hidden" in p["url"] for p in json.loads(self.get("/api/pages")[1])["pages"]))
+
+    def test_directory_symlink_into_hidden_folder_refused(self):
+        docs = self.home / "docs"
+        (docs / ".hidden" / "f.png").write_bytes(b"\x89PNG hidden")
+        (docs / "area" / "g").symlink_to("../.hidden", target_is_directory=True)
+        (docs / "area" / "via-dir.html").write_text('<title>Via dir</title><img src="g/f.png"><a href="g/x.html">x</a>')
+        self.index.scan()
+        self.assertEqual(self.get("/documents/area/g/f.png")[0], 404)
+        self.refused("/documents/area/g/x.html")
+        self.assertNotIn("Hidden", self.listed_titles())
+
+    def test_symlink_out_of_every_root_refused(self):
+        outside = self.home / "outside"
+        outside.mkdir()
+        (outside / "secret.html").write_text("<title>Outside</title>")
+        (outside / "secret.png").write_bytes(b"\x89PNG outside")
+        docs = self.home / "docs"
+        (docs / "area" / "out.html").symlink_to(outside / "secret.html")
+        (docs / "area" / "out.png").symlink_to(outside / "secret.png")
+        (docs / "area" / "ext").symlink_to(outside, target_is_directory=True)
+        (docs / "area" / "uses-out.html").write_text('<title>Uses out</title><img src="out.png"><img src="ext/secret.png">')
+        self.index.scan()
+        self.refused("/documents/area/out.html")
+        self.refused("/documents/area/ext/secret.html")
+        self.assertEqual(self.get("/documents/area/out.png")[0], 404)
+        self.assertEqual(self.get("/documents/area/ext/secret.png")[0], 404)
+        self.assertNotIn("Outside", self.listed_titles())
+
+    def test_symlink_to_servable_page_served(self):
+        """A link whose target is itself servable keeps working, and the target is listed once, so its comments sync."""
+        docs = self.home / "docs"
+        self.write_page("area/reports/ided.html", REVIEW_PAGE.format(id="linked"))
+        (docs / "area" / "alias.html").symlink_to("reports/ided.html")
+        (docs / "area" / "rep").symlink_to("reports", target_is_directory=True)
+        self.index.scan()
+        for url in ("/documents/area/alias.html", "/documents/area/rep/ided.html", "/documents/area/reports/ided.html"):
+            status, body, _ = self.get(url)
+            self.assertEqual(status, 200, url)
+            self.assertIn("<title>Reviewed</title>", body.decode())
+            self.assertEqual(self.get("/api/pages/status?url=" + quote(url))[0], 200, url)
+        self.assertEqual(self.get("/documents/area/rep/figures/chart.png")[0], 200)
+        urls = [p["url"] for p in json.loads(self.get("/api/pages")[1])["pages"]]
+        self.assertEqual(urls.count("/documents/area/reports/ided.html"), 1)
+        path = self.boot("/documents/area/alias.html")["path"]
+        self.assertEqual(self.get(f"/api/{path}")[0], 200)  # not 409: the link is not a second page with the id
+
     def test_app_and_health(self):
         self.assertIn(self.get("/")[0], (200, 503))  # 503 until apps/ui is built
         self.assertEqual(json.loads(self.get("/healthz")[1]), {"ok": True})

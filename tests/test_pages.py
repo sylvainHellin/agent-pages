@@ -115,6 +115,23 @@ class PageUrl(TempHome):
             with self.assertRaises(SystemExit, msg=d), contextlib.redirect_stderr(io.StringIO()):
                 self.run_cli("url", str(docs / "repo" / d / "p.html"))
 
+    def test_url_follows_symlinks_to_their_target(self):
+        """url (and open, which calls it) judges the file a link resolves to, as the server does."""
+        docs, outside = self.tmp / "docs", self.tmp / "outside"
+        self.cfg_file.write_text(f'base_url = "https://srv.example:1"\n[roots]\ndocuments = "{docs}"\n')
+        for d in (docs / "repo" / ".git", docs / "repo" / "pages", outside):
+            d.mkdir(parents=True)
+            (d / "p.html").write_text("<title>P</title>")
+        (docs / "repo" / "to-git.html").symlink_to(".git/p.html")
+        (docs / "repo" / "g").symlink_to(".git", target_is_directory=True)
+        (docs / "repo" / "out.html").symlink_to(outside / "p.html")
+        (docs / "repo" / "ok.html").symlink_to("pages/p.html")
+        for link in ("to-git.html", "g/p.html", "out.html"):
+            with self.assertRaises(SystemExit, msg=link), contextlib.redirect_stderr(io.StringIO()):
+                self.run_cli("url", str(docs / "repo" / link))
+        self.assertEqual(self.run_cli("url", str(docs / "repo" / "ok.html")).strip(),
+                         "https://srv.example:1/documents/repo/pages/p.html")
+
 
 class NewPage(TempHome):
     def test_new_with_empty_config(self):

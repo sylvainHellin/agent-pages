@@ -80,6 +80,7 @@ Tests: `uv run python -m unittest discover -s tests`.
 
 The server publishes the configured roots, the lessons and the library app (Lessons and Reports); it has no login.
 Under a root it serves pages and the files they link, never hidden folders (`.git`, `.agents`, dotfiles) or build folders (`node_modules`, `dist`, ...), with one exception: a repo's `.sync/`, where agents save the pages a person reads.
+A symlink is judged by the file it resolves to, so a link into a hidden folder or out of every root is refused, and a link to a servable page is listed once, under the target's own URL.
 On a server, run `agent-pages serve` as a service (a systemd user unit or a launchd agent), not in a terminal.
 
 ```bash
