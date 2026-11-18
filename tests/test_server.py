@@ -207,6 +207,27 @@ class ServerRoutes(unittest.TestCase):
         status, data, _ = self.get(path, json.dumps(body).encode(), {"Content-Type": "application/json", **(headers or {})})
         return status, json.loads(data or b"{}")
 
+    def test_lessons_private_files(self):
+        lessons = self.cfg.lessons_dir
+        (lessons / "_data").mkdir(exist_ok=True)
+        (lessons / "_data" / "state.json").write_text("{}")
+        (lessons / SLUG / ".env").write_text("TOKEN=secret")
+        (lessons / SLUG / "figures").mkdir()
+        (lessons / SLUG / "figures" / "chart.png").write_bytes(b"\x89PNG fake")
+        (lessons / SLUG / "state-link.json").symlink_to(lessons / "_data" / "state.json")
+        # what a lesson page and the app load keep working
+        self.assertEqual(self.get(f"/lessons/{SLUG}/")[0], 200)
+        self.assertEqual(self.get(f"/lessons/{SLUG}/index.html")[0], 200)
+        self.assertEqual(self.get(f"/lessons/{SLUG}/figures/chart.png")[:2], (200, b"\x89PNG fake"))
+        self.assertEqual(self.get("/lessons/_assets/report.css")[0], 200)
+        self.assertEqual(self.get("/lessons/_assets/review-sync.js")[0], 200)
+        # dot files, dot and dot-dot segments, and anything that resolves into _data stay private
+        for path in (f"/lessons/{SLUG}/.env", "/lessons/./_data/state.json",
+                     f"/lessons/{SLUG}/../_data/state.json", f"/lessons/{SLUG}/state-link.json",
+                     "/lessons/_assets/../../.git/HEAD", "/lessons/%2e/_data/state.json"):
+            with self.subTest(path=path):
+                self.assertEqual(self.get(path)[0], 404)
+
     def test_marker_scan(self):
         pages = {p["url"]: p for p in json.loads(self.get("/api/pages")[1])["pages"]}
         self.assertNotIn(INPLACE_URL, pages)  # a lesson, not a report

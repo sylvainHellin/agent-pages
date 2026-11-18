@@ -365,6 +365,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._template(p[len("/_template/"):])
         if p in ROOT_ICONS:
             return self._template(p.lstrip("/"))
+        if p.startswith("/lessons/"):  # no . or .. segment, no dot file or folder (hidden()) in the request
+            segs = [s for s in p[len("/lessons/"):].split("/") if s]
+            if ".." in segs or hidden(segs):
+                return self.send_error(HTTPStatus.NOT_FOUND)
         if p.startswith("/lessons/_assets/"):
             return self._file(library.ASSETS / p[len("/lessons/_assets/"):], library.ASSETS)
         if p.startswith("/lessons/_data/") or p == "/lessons/_data":
@@ -382,9 +386,12 @@ class Handler(BaseHTTPRequestHandler):
                 target = target / "index.html"
             try:
                 real = target.resolve()
-            except OSError:
-                real = None
-            if real is not None and real.is_file() and self._lesson_slug(real) is not None:
+                rel = real.relative_to(library.LESSONS.resolve()).parts
+            except (OSError, ValueError):
+                return self.send_error(HTTPStatus.NOT_FOUND)
+            if hidden(rel) or "_data" in rel:  # judged on the file a symlink leads to, as servable() does
+                return self.send_error(HTTPStatus.NOT_FOUND)
+            if real.is_file() and self._lesson_slug(real) is not None:
                 return self._page(real, rewrite=False)
             return self._file(library.LESSONS / p[len("/lessons/"):], library.LESSONS)
         if p == "/lessons":

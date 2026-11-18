@@ -1,5 +1,14 @@
 # Decision log
 
+## 2026-11-18 - The /lessons/ route refuses dot files, dot segments and anything that resolves into _data
+Why: the route checked only that the resolved file stayed inside the lessons folder and refused _data by the raw request string, so /lessons/<lesson>/.env, /lessons/./_data/state.json and /lessons/<lesson>/../_data/state.json were served; a review of 0884177 found it.
+Rule: a /lessons/ request with a . or .. segment or a hidden() segment is refused before any route below it, _assets included.
+Rule: a lesson file is served only when its resolved path, relative to the resolved lessons folder, has no hidden() segment and no _data segment, so a symlink into _data is refused too.
+Rule: lesson pages, their figures and audio, and /lessons/_assets/ (the repo template) keep working; browsers send ../_assets/ already resolved to /lessons/_assets/.
+Rejected: a second hidden rule for lessons (hidden() from reports.py is the one rule).
+Source: dispatch brief from Sylvain's session, 2026-11-18.
+Status: accepted
+
 ## 2026-11-18 - What is served is decided by the file a path resolves to, after every symlink
 Why: the hidden-folder check read only the requested path, so a harmless-looking link (notes/link.html -> ../.git/config, a folder link notes/g -> ../.git, a link out of every root) served private content; a review found it on 60550a8 and its parent.
 Rule: a file is served only when its resolved path is inside a resolved root with no hidden() segment below it; reports.servable() is the one check for pages, assets, the listing and agent-pages url and open.
