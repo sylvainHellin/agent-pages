@@ -1,5 +1,14 @@
 # Decision log
 
+## 2026-11-18 - A repo's .sync folder under a root is served; every other hidden folder stays private
+Why: the skills tell agents to save a page in the repo's .sync/, and ~/Documents/basenord became a git repo with a real .sync/ folder, which the server and agent-pages url refused as hidden.
+Rule: a path segment named exactly .sync passes the hidden-folder check in the server (pages, their assets, the index and the app's listing) and in agent-pages url and open; reports.hidden() is the one check for both.
+Rule: every other dot segment (.git, .agents, .stversions, dotfiles) and SKIP_DIRS stay refused, including below .sync (.sync/.cache); the CLI now refuses SKIP_DIRS as the server does.
+Rule: the app groups a page in <area>/<repo>/.sync/ under <area>/<repo>, as it groups the code root's mirrored <org>/<repo>/sync/.
+Rejected: serving .agents too (agent state, not for the reader); a config list of served dot folders (one fixed name is enough).
+Source: chat with Sylvain, 2026-11-18.
+Status: accepted
+
 ## 2026-11-16 - A page records the agent sessions that wrote it, and the export names them
 Why: a comment export pasted into a new session lost the conversation behind the page, so the new agent answered without it.
 Rule: agent-pages new writes <meta name="agent-pages-session" content="<ids>"> from --session, else $AGENT_PAGES_SESSION, else $PI_SESSION_ID; ids are space-separated, oldest first.

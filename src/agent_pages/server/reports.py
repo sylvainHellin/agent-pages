@@ -34,7 +34,11 @@ ASSET_EXT = {
     ".avif", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".mp4", ".webm", ".pdf",
 }
 SKIP_DIRS = {"node_modules", "__pycache__", "site-packages", "venv", "_site", "dist"}
-REPO_MIRRORS = {"sync", "agents"}  # a repo's .sync and .agents folders, mirrored under a root by Syncthing
+# The one hidden folder name that is served: a repo's .sync, where agents save the pages a person reads
+# (a git repo inside a root, such as ~/Documents/basenord). Hidden folders inside it stay private.
+SERVED_DOT_DIRS = {".sync"}
+# A repo's .sync and .agents folders as mirrored under the code root by Syncthing (no dot), and a repo's own .sync.
+REPO_MIRRORS = {"sync", "agents", ".sync"}
 REFRESH_S = 300  # background rescan interval
 MISS_RESCAN_S = 10  # a 404 under a root triggers a rescan at most this often
 
@@ -112,7 +116,13 @@ def review_id(key: str) -> str:
 
 
 def hidden(parts) -> bool:
-    return any(p.startswith(".") or p in SKIP_DIRS for p in parts)
+    """Whether a path under a root, as its segments, sits in a folder the server never serves or lists: a dot
+    segment other than .sync, or one of SKIP_DIRS. A file's own name counts too (dotfiles stay private)."""
+    return any(skipped_dir(p) for p in parts)
+
+
+def skipped_dir(name: str) -> bool:
+    return (name.startswith(".") and name not in SERVED_DOT_DIRS) or name in SKIP_DIRS
 
 
 def _under(path: Path, folder: Path) -> Path | None:
@@ -235,7 +245,7 @@ class Index:
                 continue
             rroot = root.resolve()
             for dirpath, dirnames, filenames in os.walk(rroot):
-                dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS]
+                dirnames[:] = [d for d in dirnames if not skipped_dir(d)]
                 for fn in filenames:
                     if Path(fn).suffix.lower() not in PAGE_EXT or fn.startswith((".", "~")) or ".sync-conflict-" in fn:
                         continue

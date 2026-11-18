@@ -373,6 +373,33 @@ class ServerRoutes(unittest.TestCase):
         self.assertEqual(self.get("/api/pages/status?url=/documents/area/missing.html")[0], 404)
         self.assertEqual(self.get("/api/pages/status?url=/documents/area/reports/secret.png")[0], 404)
 
+    def test_repo_sync_folder_served(self):
+        """A repo's .sync folder under a root (a git repo in ~/Documents) is served and listed like the code root's
+        mirrored sync folders; every other hidden folder, and a hidden folder inside .sync, stays private."""
+        repo = self.home / "docs" / "area" / "repo"
+        (repo / ".sync" / "figures").mkdir(parents=True)
+        (repo / ".sync" / "check.html").write_text('<title>Sync check</title><img src="figures/f.png">')
+        (repo / ".sync" / "figures" / "f.png").write_bytes(b"\x89PNG fake")
+        for d in (".git", ".agents", ".stversions", ".sync/.cache", ".sync/node_modules"):
+            (repo / d).mkdir(parents=True)
+            (repo / d / "x.html").write_text('<title>Private</title><img src="f.png">')
+            (repo / d / "f.png").write_bytes(b"\x89PNG fake")
+        self.index.scan()
+        self.assertEqual(self.get("/documents/area/repo/.sync/check.html")[0], 200)
+        self.assertEqual(self.get("/documents/area/repo/.sync/figures/f.png")[0], 200)
+        for d in (".git", ".agents", ".stversions", ".sync/.cache", ".sync/node_modules"):
+            self.assertEqual(self.get(f"/documents/area/repo/{d}/x.html")[0], 404, d)
+            self.assertEqual(self.get(f"/documents/area/repo/{d}/f.png")[0], 404, d)
+            self.assertEqual(self.get("/api/pages/status?url=" + quote(f"/documents/area/repo/{d}/x.html"))[0], 404, d)
+        self.assertEqual(self.get("/api/pages/status?url=" + quote("/documents/area/repo/.sync/check.html"))[0], 200)
+        pages = {p["url"]: p for p in json.loads(self.get("/api/pages")[1])["pages"]}
+        self.assertEqual(pages["/documents/area/repo/.sync/check.html"]["area"], "area/repo")
+        self.assertFalse(any("Private" == p["title"] for p in pages.values()))
+        self.assertFalse(reports.hidden(("area", "repo", ".sync", "check.html")))
+        for parts in ((".git", "x.html"), (".agents", "x.html"), (".sync", ".cache", "x.html"), (".sync", "dist", "x.html"),
+                      (".syncthing", "x.html"), ("x", ".sync.bak", "y.html")):
+            self.assertTrue(reports.hidden(parts), parts)
+
     def test_app_and_health(self):
         self.assertIn(self.get("/")[0], (200, 503))  # 503 until apps/ui is built
         self.assertEqual(json.loads(self.get("/healthz")[1]), {"ok": True})

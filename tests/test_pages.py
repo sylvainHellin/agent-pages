@@ -102,6 +102,20 @@ class ConfigDefaults(TempHome):
             config.load().theme_css()
 
 
+class PageUrl(TempHome):
+    def test_url_of_a_repo_sync_page(self):
+        docs = self.tmp / "docs"
+        self.cfg_file.write_text(f'base_url = "https://srv.example:1"\n[roots]\ndocuments = "{docs}"\n')
+        for d in (".sync", ".sync/.cache", ".git", ".agents", "node_modules"):
+            (docs / "repo" / d).mkdir(parents=True)
+            (docs / "repo" / d / "p.html").write_text("<title>P</title>")
+        self.assertEqual(self.run_cli("url", str(docs / "repo" / ".sync" / "p.html")).strip(),
+                         "https://srv.example:1/documents/repo/.sync/p.html")
+        for d in (".sync/.cache", ".git", ".agents", "node_modules"):
+            with self.assertRaises(SystemExit, msg=d), contextlib.redirect_stderr(io.StringIO()):
+                self.run_cli("url", str(docs / "repo" / d / "p.html"))
+
+
 class NewPage(TempHome):
     def test_new_with_empty_config(self):
         self.cfg_file.write_text("")

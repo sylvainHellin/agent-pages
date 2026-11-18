@@ -31,6 +31,7 @@ from urllib.parse import quote, urlsplit
 
 from .config import Config
 from .page import add_session, current_session, page_sessions, report_page
+from .server.reports import hidden
 
 IS_MAC = platform.system() == "Darwin"
 # Paths a file sync never carries inside the synced folders.
@@ -414,8 +415,9 @@ def page_url(cfg: Config, path: Path) -> str:
             rel = real.relative_to(root.resolve())
         except ValueError:
             continue
-        if any(p.startswith(".") for p in rel.parts):
-            raise ValueError(f"{real} sits in a hidden folder, which the server does not serve")
+        if hidden(rel.parts):
+            raise ValueError(f"{real} sits in a hidden or skipped folder (only a repo's .sync is served), "
+                             "which the server does not serve")
         return f"{cfg.base_url}/{name}/{quote(rel.as_posix())}"
     roots = ", ".join(f"{k}={v}" for k, v in cfg.roots.items()) or "none configured"
     raise ValueError(f"{real} is outside the served roots ({roots}), so it has no link")
