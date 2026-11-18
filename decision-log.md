@@ -84,11 +84,11 @@ Rejected: an h1 that states the finding.
 Source: chat with Sylvain, 2026-11-11.
 Status: accepted
 
-## 2026-11-11 - agent-setup keeps its own report template and tutor skill until this repo is public
-Why: agent-setup is public for students and this repo was private, so a pointer would have been a dead link for them.
-Rule: the repo is public since 2026-11-12, so the pointer can replace the copies once Sylvain says so.
-Rejected: replacing them with a pointer while the repo was private.
-Source: chat with Sylvain, 2026-11-11.
+## 2026-11-11 - agent-setup points to this repo for report pages and lessons instead of carrying its own template and tutor skill
+Why: agent-setup is public for students, and since this repo went public on 2026-11-12 a pointer reaches them; two copies would drift.
+Rule: agent-setup's README, TOOLS.md and skills README name this repo, and its pi settings example lists ~/code/agent-pages/skills; this README's Install and Configure must keep working from a fresh clone with an empty config.
+Rejected: keeping the copies in agent-setup (done only while this repo was private).
+Source: chat with Sylvain, 2026-11-11 and 2026-11-18 (PERSO-299).
 Status: accepted
 
 ## 2026-11-11 - The project is named agent-pages, the app Agent Pages: one tool for the HTML pages an agent writes for a person to read and comment on
