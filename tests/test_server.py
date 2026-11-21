@@ -495,6 +495,31 @@ class ServerRoutes(unittest.TestCase):
         self.assertIn(self.get("/")[0], (200, 503))  # 503 until apps/ui is built
         self.assertEqual(json.loads(self.get("/healthz")[1]), {"ok": True})
 
+    def head_etag(self, path: str) -> str:
+        req = urllib.request.Request(self.base + path)
+        with urllib.request.urlopen(req) as r:
+            r.read()
+            return r.headers.get("ETag", "")
+
+    def test_revalidation_answers_304(self):
+        # A reopened page on a slow line costs one round trip instead of the whole page and template again.
+        for path in ("/_template/report.css", "/documents/area/reports/page.html",
+                     "/documents/area/reports/figures/chart.png", "/"):
+            with self.subTest(path=path):
+                etag = self.head_etag(path)
+                self.assertTrue(etag, "no ETag")
+                status, body, _ = self.get(path, headers={"If-None-Match": etag})
+                self.assertEqual(status, 304)
+                self.assertEqual(body, b"")
+                self.assertEqual(self.get(path, headers={"If-None-Match": '"other"'})[0], 200)
+
+    def test_changed_page_gets_new_etag(self):
+        path = "/documents/area/plain.html"
+        before = self.head_etag(path)
+        (self.home / "docs" / "area" / "plain.html").write_text(PLAIN_PAGE.replace("Answer.", "Revised answer."))
+        self.assertNotEqual(self.head_etag(path), before)
+        self.assertEqual(self.get(path, headers={"If-None-Match": before})[0], 200)
+
 
 if __name__ == "__main__":
     unittest.main()

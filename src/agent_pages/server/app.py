@@ -124,7 +124,11 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype.endswith(("javascript", "json", "svg+xml")):
             ctype += "; charset=utf-8"
-        size = path.stat().st_size
+        st = path.stat()
+        size = st.st_size
+        etag = f'"{size:x}-{st.st_mtime_ns:x}"'
+        if self._not_modified(etag, cache):
+            return
         start, end = 0, size - 1
         rng = re.fullmatch(r"bytes=(\d*)-(\d*)", (self.headers.get("Range") or "").strip())
         if rng and size:  # iOS Safari only plays <video> from servers that answer byte ranges
@@ -145,6 +149,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Accept-Ranges", "bytes")
+        self.send_header("ETag", etag)
         self.send_header("Cache-Control", cache)  # no-cache by default: lessons are revised in place
         self.end_headers()
         if self.command == "HEAD":
@@ -159,10 +164,25 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
                 left -= len(chunk)
 
+    def _not_modified(self, etag: str, cache: str) -> bool:
+        """Answer 304 when the client's copy is current: a revalidation then costs a round trip, not the file."""
+        tags = [t.strip() for t in (self.headers.get("If-None-Match") or "").split(",")]
+        if etag not in tags and f"W/{etag}" not in tags:
+            return False
+        self.send_response(HTTPStatus.NOT_MODIFIED)
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", cache)
+        self.end_headers()
+        return True
+
     def _send(self, body: bytes, ctype: str, cache: str = "no-cache"):
+        etag = '"%s"' % hashlib.sha1(body).hexdigest()[:20]
+        if self._not_modified(etag, cache):
+            return
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("ETag", etag)
         self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
