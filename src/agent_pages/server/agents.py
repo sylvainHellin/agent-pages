@@ -14,12 +14,17 @@ repeat is the same send) and the export beside it as <id>.md, then picks a route
             once, and again only to that same pi retrying a lost answer), queues it as a follow-up and reports
             POST /api/agents/started/<id> when it starts
   pending   a session is registered but not connected (a live local pid, or another host's registration never
-            closed), a Paseo agent holding the session is running, or the server started less than GRACE_S ago;
-            the send waits for that session's stream and is pushed when it connects
+            closed and seen in the last REMOTE_TTL_S), a Paseo agent holding the session is running, or the server
+            started less than GRACE_S ago; the send waits for that session's stream and is pushed when it connects.
+            One waiting on a running Paseo agent is also checked every PASEO_RECHECK_S: once the agent is idle the
+            server sends it itself (route paseo); after PASEO_WAIT_S of a busy agent it is stored as none
   paseo     an idle Paseo agent holds the session: the server claims the send and runs `send` ([harness.paseo])
   resuming  a pi session file on this machine (one match, header cwd present, untouched for FRESH_S): the server
             claims it, imports the session into Paseo with --cwd pages_dir, then sends
-  failed    the session file was written in the last FRESH_S, or its working folder is gone
+  held      the session file could be resumed, but a pi without the extension may hold it (_holders reads /proc):
+            stored with where = that pi's folder; the app offers Resume anyway, POST /api/send {..., "force": true},
+            which skips this check only
+  failed    the session file was written in the last FRESH_S (forced or not), or its working folder is gone
   none      none of these: the app offers a new agent, POST /api/send {..., "new": true}, which runs `new` in the
             page's folder and adds the new agent's session to the page
 POST /api/agents/release/<id> hands a claimed send that did not start back (pending, pushed again); a new
@@ -62,8 +67,12 @@ HARNESSES = ("paseo", "herdr", "pi")
 HEARTBEAT_S = 20.0
 GRACE_S = 60.0  # after a start, the agents get this long to reconnect before a send falls back
 FRESH_S = 120.0  # a session file written this recently may be open in a pi without the extension
+REMOTE_TTL_S = 24 * 3600.0  # another host's registration not closed cleanly counts as gone after a day unseen
+PASEO_RECHECK_S = 30.0  # how often a send waiting on a running Paseo agent checks whether it is idle
+PASEO_WAIT_S = 30 * 60.0  # how long it waits for that agent before it is stored as none
 MD_LIMIT = 600_000
 COMMAND_S = 120  # one Paseo command
+INSPECT_S = 5  # `paseo inspect`, run inside POST /api/send: past this, Paseo's stored status answers
 SESSION_WAIT_S = 30  # how long a new agent gets to name its session
 SERVER_ROUTES = ("paseo", "resuming", "new")  # sends the server claims itself
 DROP_ENV = ("PASEO_AGENT_ID", "PASEO_AGENT_CWD")  # set in an agent's shell, they would pull new agents into it
@@ -75,8 +84,10 @@ PAGES_DIR = Path.home() / "pages"
 COMMANDS: dict[str, list[str]] = {}
 STARTED = time.time()
 HOST = socket.gethostname()
+PROC = Path("/proc")
 
 _lock = threading.RLock()
+_generation = 0  # bumped by configure(): a background watcher of an older configuration stops
 _live: dict[str, "Listener"] = {}
 _inflight: set[str] = set()  # send ids being routed: a repeat meanwhile is refused, never routed twice
 
@@ -86,7 +97,8 @@ class SendError(ValueError):
 
 
 def configure(data_dir: Path, pages_dir: Path, commands: dict[str, list[str]] | None = None) -> None:
-    global DATA, AGENTS, SENDS, PAGES_DIR, COMMANDS, STARTED
+    global DATA, AGENTS, SENDS, PAGES_DIR, COMMANDS, STARTED, _generation
+    _generation += 1
     DATA = Path(data_dir)
     AGENTS = DATA / "agents"
     SENDS = DATA / "sends"
@@ -100,14 +112,16 @@ RESTARTED = "the server restarted during delivery; check the agent before sendin
 
 
 def start() -> None:
-    """Fail the server's own deliveries a restart cut off; route the sends still waiting for the start grace once
-    it ends."""
+    """Fail the server's own deliveries a restart cut off; watch again the sends waiting on a running Paseo agent;
+    route the sends still waiting for the start grace once it ends."""
     with _lock:
         for rec in _records():
             if rec.get("state") == "claimed" and rec.get("route") in SERVER_ROUTES and not rec.get("started_at"):
                 # the Paseo command may or may not have run: never retried, the reader checks the agent
                 rec.update(state="failed", error=RESTARTED)
                 _save(rec)
+            elif _waits_on_paseo(rec):
+                _watch_paseo(rec["id"])
     t = threading.Timer(max(0.0, STARTED + GRACE_S - time.time()) + 0.5, after_grace)
     t.daemon = True
     t.start()
@@ -162,8 +176,8 @@ def _records() -> list[dict]:
 
 def summary(rec: dict) -> dict:
     """A send as the app sees it."""
-    keys = ("id", "page", "url", "state", "route", "where", "harness", "host", "session", "agent", "error",
-            "created", "claimed_at", "started_at")
+    keys = ("id", "page", "url", "state", "route", "where", "terminal", "harness", "host", "session", "agent",
+            "error", "created", "claimed_at", "started_at")
     return {k: rec.get(k) for k in keys}
 
 
@@ -227,15 +241,19 @@ def _alive(pid: int) -> bool:
 
 def _registered(session: str) -> dict | None:
     """A registration that is not connected but whose pi may come back: a live local pid, or another host's
-    registration that was never closed. A dead local pid's file is dropped."""
+    registration that was never closed and whose stream went less than REMOTE_TTL_S ago (last_seen). A dead local
+    pid's file, or a remote one unseen for longer, is dropped."""
     reg = _read(_reg_path(session))
     if not reg:
         return None
     if reg.get("host") != HOST:
-        return reg
-    pid = reg.get("pid")
-    if isinstance(pid, int) and pid > 0 and _alive(pid):
-        return reg
+        seen = reg.get("last_seen") or reg.get("connected_at")
+        if isinstance(seen, (int, float)) and time.time() - seen < REMOTE_TTL_S:
+            return reg
+    else:
+        pid = reg.get("pid")
+        if isinstance(pid, int) and pid > 0 and _alive(pid):
+            return reg
     try:
         _reg_path(session).unlink()
     except OSError:
@@ -298,7 +316,13 @@ def _newer_registered(sessions: list[str], s: str) -> bool:
 def _claimer_gone(claimer: dict, reg: dict) -> bool:
     """Whether a new registration of the session shows that the pi holding a claim is gone: on this host, its pid
     is dead; on another host, which this one cannot look into, a pi there registered with another pid. The claimer
-    itself registering again is never gone."""
+    itself registering again is never gone.
+
+    Accepted gap (the other-pid rule): two pi on the same session on one remote host can both deliver a send. The
+    first claims it and queues it; the second registers (superseding the first's stream), the rule reads the first
+    as gone, the send goes back to pending and is pushed to the second, which claims and queues it too. The server
+    cannot tell a SIGKILLed pi from a live one on a host it cannot look into, and two pi writing one session file
+    already conflict on their own (pi does not guard against it), so this is left as is."""
     pid, host = claimer.get("pid"), claimer.get("host")
     if not isinstance(pid, int) or not host:
         return True  # a claim that names no pi has no one to wait for
@@ -509,6 +533,7 @@ def send(body) -> dict:
     if len(md.encode("utf-8")) > MD_LIMIT:
         raise SendError(f"the export is larger than {MD_LIMIT // 1000} kB")
     new = body.get("new") is True
+    force = body.get("force") is True
     with _lock:
         known = _load(send_id)
         if known is not None:
@@ -517,13 +542,13 @@ def send(body) -> dict:
             raise LookupError(f"send {send_id} is being routed: ask again for its state")
         _inflight.add(send_id)
     try:
-        return _send(rid, send_id, md, new)
+        return _send(rid, send_id, md, new, force)
     finally:
         with _lock:
             _inflight.discard(send_id)
 
 
-def _send(rid: str, send_id: str, md: str, new: bool) -> dict:
+def _send(rid: str, send_id: str, md: str, new: bool, force: bool = False) -> dict:
     item = library.get_item(rid)
     if item is None:
         raise KeyError(rid)
@@ -537,6 +562,8 @@ def _send(rid: str, send_id: str, md: str, new: bool) -> dict:
            "session": None, "state": "pending", "route": "", "where": "", "harness": "", "host": "", "agent": None,
            "error": None, "created": time.time(), "claimed_at": None, "started_at": None, "claimer": None,
            "markdown": str(SENDS / f"{send_id}.md")}
+    if force:
+        rec["force"] = True  # Resume anyway: a pi without the extension in the session's folder does not hold it back
     if new:
         return _route_new(rec, item, md)
     return _route(rec, md)
@@ -586,7 +613,9 @@ def _route(rec: dict, md: str | None = None) -> dict:
         rec.update(session=s, harness="paseo", where=agent["id"], host=HOST, agent=agent["id"])
         if _paseo_status(agent) == "running":
             rec.update(route="pending")
-            return _keep(rec, md)
+            out = _keep(rec, md)
+            _watch_paseo(rec["id"])  # its pi may never connect (no extension yet): deliver once the agent is idle
+            return out
         rec.update(route="paseo")
         return _server_claim(rec, md, lambda r: _run_send(r, agent["id"]))
     for s in sessions:
@@ -610,9 +639,13 @@ def _fail(rec: dict, md: str | None, error: str) -> dict:
     return _keep(rec, md)
 
 
+def _server_claimer() -> dict:
+    return {"pid": os.getpid(), "host": HOST, "server": True}
+
+
 def _server_claim(rec: dict, md: str | None, work) -> dict:
     """The server delivers this send itself: claim it now and run `work` in the background."""
-    rec.update(state="claimed", claimed_at=time.time(), claimer={"pid": os.getpid(), "host": HOST, "server": True})
+    rec.update(state="claimed", claimed_at=time.time(), claimer=_server_claimer())
     _keep(rec, md)
     threading.Thread(target=_deliver, args=(rec["id"], work), daemon=True, name=f"send-{rec['id']}").start()
     return summary(rec)
@@ -677,6 +710,58 @@ def after_grace() -> None:
                 _save(cur)
 
 
+PASEO_BUSY = "the Paseo agent stayed busy for {} minutes and its pi has no Send to agent stream; send again or start a new one"
+
+
+def _waits_on_paseo(rec: dict | None) -> bool:
+    """A send kept pending because the Paseo agent holding its session was running."""
+    return (bool(rec) and rec.get("state") == "pending" and rec.get("route") == "pending"
+            and rec.get("harness") == "paseo" and bool(rec.get("agent")) and bool(rec.get("session")))
+
+
+def _watch_paseo(send_id: str) -> None:
+    threading.Thread(target=_paseo_watch, args=(send_id, _generation), daemon=True, name=f"watch-{send_id}").start()
+
+
+def _paseo_watch(send_id: str, gen: int) -> None:
+    """A send waiting on a running Paseo agent: its pi may have no extension (not reloaded yet), so nothing would
+    ever claim it. Every PASEO_RECHECK_S, while the send still waits and no stream holds its session: once the agent
+    is not running the server claims the send and runs `send` (paseo send --no-wait), as for an idle agent; `send`
+    to a running agent would abort its turn (Paseo has no follow-up queue), so it is never sent while running.
+    PASEO_WAIT_S after the send was made, a still busy agent leaves it as none. A live stream of the session takes
+    over: it was pushed the send when it connected and claims it itself."""
+    while True:
+        time.sleep(PASEO_RECHECK_S)
+        if gen != _generation:
+            return
+        with _lock:
+            rec = _load(send_id)
+            if not _waits_on_paseo(rec) or rec["session"] in _live:
+                return
+            session = rec["session"]
+        agent = _paseo_agent(session)
+        status = _paseo_status(agent) if agent else ""
+        with _lock:
+            if gen != _generation:
+                return
+            rec = _load(send_id)
+            if not _waits_on_paseo(rec) or rec["session"] in _live:
+                return
+            if agent is not None and status != "running":
+                rec.update(route="paseo", agent=agent["id"], where=agent["id"], state="claimed",
+                           claimed_at=time.time(), claimer=_server_claimer())
+                _save(rec)
+            elif agent is None or time.time() - float(rec.get("created") or 0) >= PASEO_WAIT_S:
+                error = NO_AGENT if agent is None else PASEO_BUSY.format(max(1, round(PASEO_WAIT_S / 60)))
+                rec.update(state="none", route="none", error=error)
+                _save(rec)
+                return
+            else:
+                continue
+        _deliver(send_id, lambda r: _run_send(r, agent["id"]))
+        return
+
+
 # ---------- Paseo and pi session files ----------
 
 def _paseo_home() -> Path:
@@ -697,19 +782,97 @@ def _paseo_agent(session: str) -> dict | None:
 
 
 def _paseo_status(agent: dict) -> str:
-    """running, idle, ...: what `inspect` says, else the status Paseo last stored."""
+    """running, idle, ...: what `inspect` says within INSPECT_S, else the status Paseo last stored (lastStatus in
+    ~/.paseo/agents/*/<id>.json, read again here since it may have changed since the agent was looked up)."""
     try:
-        out = _run("inspect", agent=agent["id"])
+        out = _run("inspect", timeout=INSPECT_S, agent=agent["id"])
         status = json.loads(out).get("Status")
         if isinstance(status, str) and status:
             return status.lower()
     except (SendError, OSError, ValueError, AttributeError, subprocess.SubprocessError):
         pass
+    for f in (_paseo_home() / "agents").glob(f"*/{agent['id']}.json"):
+        stored = _read(f)
+        if stored and stored.get("lastStatus"):
+            return str(stored["lastStatus"]).lower()
     return str(agent.get("lastStatus") or "").lower()
 
 
 def _session_files(session: str) -> list[Path]:
     return sorted((Path.home() / ".pi" / "agent" / "sessions").glob(f"*/*_{session}.jsonl"))
+
+
+def _pi_processes() -> list[dict]:
+    """The pi processes running on this host as /proc shows them: [{pid, args, cwd, terminal}].
+
+    How a pi shows in /proc (checked on the home server, pi-coding-agent run by node): pi sets process.title to
+    "pi", so /proc/<pid>/comm reads "pi" and /proc/<pid>/cmdline is "pi" padded with NULs: the original arguments
+    (a --session <file>, say) are gone. A process counts as a pi when its comm is "pi", or when its command line
+    still names pi-coding-agent (one caught before it renamed itself, or started some other way); /proc/<pid>/exe
+    is node either way and is not needed. Its working folder is the /proc/<pid>/cwd link, readable only for this
+    user's processes, which are the only ones that can write this user's session files. The terminal comes from
+    the environment it was started with: HC_TERMINAL_ID (herdr) or PASEO_AGENT_ID (a Paseo agent). pi holds no
+    file descriptor on its session file (it appends and closes), so an open file cannot be looked for."""
+    out = []
+    try:
+        entries = list(PROC.iterdir())
+    except OSError:
+        return out
+    for d in entries:
+        if not d.name.isdigit() or int(d.name) == os.getpid():
+            continue
+        try:
+            comm = (d / "comm").read_text(errors="replace").strip()
+            args = [a.decode(errors="replace") for a in (d / "cmdline").read_bytes().split(b"\0") if a]
+        except OSError:
+            continue
+        if comm != "pi" and not any("pi-coding-agent" in a for a in args):
+            continue
+        try:
+            cwd = os.path.realpath(d / "cwd", strict=True)
+        except OSError:
+            continue  # another user's process, or one that exited meanwhile
+        terminal = ""
+        try:
+            env = dict(e.split("=", 1) for e in (d / "environ").read_bytes().decode(errors="replace").split("\0")
+                       if "=" in e)
+        except OSError:
+            env = {}
+        if env.get("HC_TERMINAL_ID"):
+            terminal = f"herdr {env['HC_TERMINAL_ID']}"
+        elif env.get("PASEO_AGENT_ID"):
+            terminal = f"Paseo agent {env['PASEO_AGENT_ID']}"
+        out.append({"pid": int(d.name), "args": args, "cwd": cwd, "terminal": terminal})
+    return out
+
+
+def _holders(session: str, f: Path, cwd: str) -> list[dict]:
+    """The pi on this host that may hold a session the server is about to resume, so two pi would write one file:
+    one whose command line names the session id or file, or one working in the session's folder that has no
+    registration (a pi with the extension registers the session it holds, and a held session is routed live or
+    pending before it gets here; one without the extension, not reloaded yet or superseded, is the normal case).
+    A heuristic: a pi in that folder on another session also counts, and Resume anyway is the way past it."""
+    with _lock:
+        registered = {lst.reg["pid"] for lst in _live.values() if lst.reg.get("host") == HOST}
+    if AGENTS.is_dir():
+        for p in AGENTS.glob("*.json"):
+            reg = _read(p) or {}
+            if reg.get("host") == HOST and isinstance(reg.get("pid"), int):
+                registered.add(reg["pid"])
+    try:
+        folder = os.path.realpath(cwd)
+    except OSError:
+        folder = cwd
+    found = []
+    for p in _pi_processes():
+        if any(session in a or str(f) in a for a in p["args"]):
+            found.append(p)
+        elif p["cwd"] == folder and p["pid"] not in registered:
+            found.append(p)
+    return found
+
+
+HELD = "a pi without the agent-pages extension may hold this session in {}: reload it, or resume anyway"
 
 
 def _resume(rec: dict, md: str | None, session: str, files: list[Path]) -> dict:
@@ -729,6 +892,11 @@ def _resume(rec: dict, md: str | None, session: str, files: list[Path]) -> dict:
     if time.time() - mtime < FRESH_S:
         return _fail(rec, md, f"the session was written in the last {int(FRESH_S // 60)} minutes, so a pi without "
                               "the agent-pages extension may still hold it: send again once it is closed")
+    if not rec.get("force"):
+        held = _holders(session, f, cwd)
+        if held:
+            rec.update(state="held", route="held", where=cwd, terminal=held[0]["terminal"], error=HELD.format(cwd))
+            return _keep(rec, md)
     rec.update(route="resuming", where="Paseo pages")
 
     def work(r: dict) -> None:
@@ -828,16 +996,18 @@ def command(name: str, **values: str) -> list[str]:
     return [PLACEHOLDER_RE.sub(lambda m: values[m.group(1)], arg) for arg in COMMANDS[name]]
 
 
-def _run(name: str, **values: str) -> str:
-    """Run a command with no shell; its stdout, or SendError with its stderr."""
+def _run(name: str, timeout: float | None = None, **values: str) -> str:
+    """Run a command with no shell, for at most timeout seconds (COMMAND_S by default); its stdout, or SendError
+    with its stderr."""
     argv = command(name, **values)
     env = {k: v for k, v in os.environ.items() if k not in DROP_ENV}
+    limit = COMMAND_S if timeout is None else timeout
     try:
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=COMMAND_S, env=env, stdin=subprocess.DEVNULL)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=limit, env=env, stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         raise SendError(f"{argv[0]} not found") from None
     except subprocess.TimeoutExpired:
-        raise SendError(f"{argv[0]} {name} took longer than {COMMAND_S} s") from None
+        raise SendError(f"{argv[0]} {name} took longer than {limit} s") from None
     if p.returncode != 0:
         raise SendError(f"{argv[0]} {name} failed: {(p.stderr or p.stdout).strip()[:1500]}")
     return p.stdout

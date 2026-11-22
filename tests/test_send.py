@@ -65,6 +65,9 @@ if (state / "fail").exists():
 cmd = argv[0]
 if cmd == "inspect":
     agent = argv[-1]
+    if (state / "slow-inspect").exists():
+        import time
+        time.sleep(30)
     st = state / ("status-" + agent)
     print(json.dumps({{"Id": agent, "Status": st.read_text().strip() if st.exists() else "idle"}}))
 elif cmd == "import":
@@ -173,6 +176,11 @@ class SendToAgent(unittest.TestCase):
         self._quiet.start()
         self._timing = mock.patch.multiple(agents, GRACE_S=0, HEARTBEAT_S=0.3)
         self._timing.start()
+        # an empty process table: only the processes a test puts there may hold a session (pi_process)
+        self.proc = home / "proc"
+        self.proc.mkdir()
+        self._proc = mock.patch.object(agents, "PROC", self.proc, create=True)
+        self._proc.start()
         docs = self.docs = home / "docs"
         (docs / "area").mkdir(parents=True)
         self.page_file = docs / "area" / "page.html"
@@ -200,6 +208,7 @@ class SendToAgent(unittest.TestCase):
         agents.close_all()
         self.srv.shutdown()
         self.srv.server_close()
+        self._proc.stop()
         self._timing.stop()
         self._quiet.stop()
         self._env.stop()
@@ -248,6 +257,16 @@ class SendToAgent(unittest.TestCase):
         t = time.time() - age
         os.utime(f, (t, t))
         return f
+
+    def pi_process(self, pid: int, cwd: Path, comm: str = "pi", cmdline: bytes = b"pi" + b"\0" * 40,
+                   environ: bytes = b"") -> None:
+        """A process in the fake /proc, as a pi shows there: comm and cmdline "pi" (it sets its process title)."""
+        d = self.proc / str(pid)
+        d.mkdir()
+        (d / "comm").write_text(comm + "\n")
+        (d / "cmdline").write_bytes(cmdline)
+        (d / "environ").write_bytes(environ)
+        os.symlink(cwd, d / "cwd")
 
     def paseo_agent(self, session: str, agent: str = AGENT, status: str = "idle", archived: bool = False) -> None:
         d = self.home / ".paseo" / "agents" / "work"
@@ -396,6 +415,20 @@ class SendToAgent(unittest.TestCase):
         body = self.send()[1]
         self.assertEqual((body["route"], body["host"]), ("pending", "sylvain-mac"))
 
+    def remote_registration(self, session: str, seen_ago: float) -> None:
+        """The Mac's pi registered the session and was never closed cleanly; its stream went seen_ago seconds ago."""
+        reg = {"session": session, "pid": 4242, "host": "sylvain-mac", "harness": "pi", "where": "",
+               "connected_at": time.time() - seen_ago - 60, "last_seen": time.time() - seen_ago}
+        (library.DATA / "agents").mkdir(parents=True, exist_ok=True)
+        (library.DATA / "agents" / f"{session}.json").write_text(json.dumps(reg))
+
+    def test_a_remote_registration_unseen_for_a_day_is_gone(self):
+        self.remote_registration(S_NEW, seen_ago=23 * 3600)
+        self.assertEqual(self.send()[1]["route"], "pending")
+        self.remote_registration(S_NEW, seen_ago=25 * 3600)
+        self.assertEqual(self.send("send-0002")[1]["route"], "none")
+        self.assertFalse((library.DATA / "agents" / f"{S_NEW}.json").exists())
+
     def test_dead_local_pid_is_not_a_registration(self):
         s = self.listen(S_NEW, pid=2 ** 22 + 12345)  # no such process
         s.close()
@@ -459,6 +492,59 @@ class SendToAgent(unittest.TestCase):
         self.assertEqual((body["route"], body["harness"], body["where"]), ("pending", "paseo", AGENT))
         self.assertNotIn("send", [c[0] for c in self.paseo_calls()])  # never interrupts a running turn
 
+    def test_inspect_that_hangs_falls_back_to_the_stored_status(self):
+        self.paseo_agent(S_NEW, status="running")  # lastStatus running in Paseo's store
+        (self.state / "slow-inspect").write_text("")
+        t0 = time.time()
+        body = self.send()[1]
+        self.assertLess(time.time() - t0, 8)  # inspect gets 5 s, not the 120 s of a Paseo command
+        self.assertEqual((body["route"], body["harness"]), ("pending", "paseo"))
+
+    def test_a_send_waiting_on_a_running_paseo_agent_is_delivered_once_it_is_idle(self):
+        with mock.patch.multiple(agents, PASEO_RECHECK_S=0.05, create=True):
+            self.paseo_agent(S_NEW, status="running")
+            self.assertEqual(self.send()[1]["route"], "pending")
+            time.sleep(0.3)
+            self.assertEqual((self.record()["state"], [c for c in self.paseo_calls() if c[0] == "send"]), ("pending", []))
+            (self.state / f"status-{AGENT}").write_text("idle")
+            rec = until(lambda: (r := self.record())["state"] == "started" and r, what="the delivery once idle")
+        self.assertEqual((rec["route"], rec["agent"]), ("paseo", AGENT))
+        sends = [c for c in self.paseo_calls() if c[0] == "send"]
+        self.assertEqual(sends, [["send", "--no-wait", "--prompt-file", str(library.DATA / "sends" / "send-0001.md"), AGENT]])
+        self.assertEqual(self.item()["status"], "sent")
+
+    def test_a_paseo_agent_busy_for_the_whole_wait_leaves_the_send_none(self):
+        with mock.patch.multiple(agents, PASEO_RECHECK_S=0.05, PASEO_WAIT_S=0.4, create=True):
+            self.paseo_agent(S_NEW, status="running")
+            self.send()
+            rec = until(lambda: (r := self.record())["state"] == "none" and r, what="the end of the wait")
+        self.assertEqual(rec["route"], "none")
+        self.assertIn("busy", rec["error"])
+        self.assertNotIn("send", [c[0] for c in self.paseo_calls()])
+
+    def test_a_running_paseo_agent_that_connects_gets_the_send_from_its_stream(self):
+        with mock.patch.multiple(agents, PASEO_RECHECK_S=0.05, create=True):
+            self.paseo_agent(S_NEW, status="running")
+            self.send()
+            s = self.listen(S_NEW, harness="paseo", where=AGENT)  # its pi reloaded with the extension
+            until(s.sends, what="the push")
+            (self.state / f"status-{AGENT}").write_text("idle")
+            time.sleep(0.3)
+            self.assertEqual(self.req("POST", "/api/agents/claim/send-0001")[0], 200)
+            time.sleep(0.2)
+        self.assertNotIn("send", [c[0] for c in self.paseo_calls()])
+
+    def test_a_restart_watches_again_the_sends_waiting_on_a_running_paseo_agent(self):
+        with mock.patch.multiple(agents, PASEO_RECHECK_S=0.05, create=True):
+            self.paseo_agent(S_NEW, status="running")
+            self.send()
+            agents.configure(library.DATA, self.cfg.pages_dir)  # what a restart does: no watcher survives it
+            (self.state / f"status-{AGENT}").write_text("idle")
+            time.sleep(0.3)
+            self.assertEqual(self.record()["state"], "pending")
+            agents.start()
+            until(lambda: self.record()["state"] == "started", what="the delivery after the restart")
+
     def test_paseo_agent_idle_gets_the_export(self):
         self.paseo_agent(S_NEW, status="idle")
         self.paseo_agent(S_OLD, agent="eeeeeeee-0000-4000-8000-000000000005", status="idle", archived=True)
@@ -502,6 +588,57 @@ class SendToAgent(unittest.TestCase):
         self.assertEqual((body["route"], body["state"]), ("failed", "failed"))
         self.assertIn("2 minutes", body["error"])
         self.assertEqual(self.paseo_calls(), [])
+
+    def test_resume_held_when_a_pi_without_the_extension_runs_in_the_session_folder(self):
+        self.session_file(S_NEW)  # untouched for an hour: the file-age guard lets it through
+        self.pi_process(7001, self.work, environ=b"HC_TERMINAL_ID=t4w\0HOME=/x\0")
+        body = self.send()[1]
+        self.assertEqual((body["state"], body["route"], body["where"], body["terminal"]),
+                         ("held", "held", str(self.work), "herdr t4w"))
+        self.assertEqual(self.paseo_calls(), [])
+        self.assertEqual(self.record()["state"], "held")  # stored: a reload shows it again
+        # Resume anyway: the page posts a new send with force
+        body = self.send("send-0002", force=True)[1]
+        self.assertEqual(body["route"], "resuming")
+        until(lambda: self.record("send-0002")["state"] == "started", what="the forced resume")
+        self.assertEqual(self.record("send-0001")["state"], "held")
+
+    def test_resume_held_when_a_pi_names_the_session_on_its_command_line(self):
+        f = self.session_file(S_NEW)
+        argv = ["node", "/usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js", "--session", str(f)]
+        self.pi_process(7002, self.home, comm="node", cmdline="\0".join(argv).encode() + b"\0",
+                        environ=b"PASEO_AGENT_ID=" + AGENT.encode() + b"\0")
+        body = self.send()[1]
+        self.assertEqual((body["state"], body["where"], body["terminal"]), ("held", str(self.work), "Paseo agent " + AGENT))
+
+    def test_a_registered_pi_or_another_program_in_the_session_folder_does_not_hold_it(self):
+        self.session_file(S_NEW)
+        self.listen(S_LESSON, pid=7003)  # a pi with the extension, on another session
+        self.pi_process(7003, self.work)
+        self.pi_process(7004, self.work, comm="bash", cmdline=b"bash\0")
+        self.pi_process(7005, self.home)  # a pi elsewhere
+        self.assertEqual(self.send()[1]["route"], "resuming")
+
+    def test_a_fresh_session_file_is_refused_even_when_forced(self):
+        self.session_file(S_NEW, age=30)
+        body = self.send(force=True)[1]
+        self.assertEqual((body["route"], body["state"]), ("failed", "failed"))
+        self.assertIn("2 minutes", body["error"])
+
+    @unittest.skipUnless(Path("/proc/self/comm").exists(), "needs Linux /proc")
+    def test_held_on_the_real_proc_by_a_process_named_pi(self):
+        self.session_file(S_NEW)
+        # a process that names itself pi the way pi's process.title does, in the session's folder
+        child = __import__("subprocess").Popen(
+            [sys.executable, "-c", "open('/proc/self/comm', 'w').write('pi'); import time; time.sleep(30)"], cwd=self.work)
+        try:
+            until(lambda: Path(f"/proc/{child.pid}/comm").read_text().strip() == "pi", what="the child to rename itself")
+            with mock.patch.object(agents, "PROC", Path("/proc")):
+                body = self.send()[1]
+        finally:
+            child.kill()
+            child.wait()
+        self.assertEqual((body["state"], body["where"]), ("held", str(self.work)))
 
     def test_resume_failed_when_the_working_folder_is_gone(self):
         self.session_file(S_NEW, cwd=self.home / "removed")
