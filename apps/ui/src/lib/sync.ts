@@ -51,7 +51,13 @@ const API = () => rootUrl('api/')
 export async function pull(slug: string | null | undefined): Promise<boolean> {
   if (!slug) return false
   const t = await load()
-  return t ? t.pull(API(), slug, keys.get(slug)) : false
+  if (!t) return false
+  // a TutorSync of another version (an older copy in a cache) must not make the reader throw
+  try {
+    return await t.pull(API(), slug, keys.get(slug))
+  } catch {
+    return false
+  }
 }
 
 export function push(slug: string | null | undefined, keepalive = false): void {

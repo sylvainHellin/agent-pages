@@ -326,3 +326,19 @@ test('the app pulls a lesson its frame shows while the reader types there: it as
   assert.deepEqual(net.server.data.c.map((x) => x.id).sort(), ['a', 'b', 'c'])
   assert.equal(frame.win.location.reloaded, 1)
 })
+
+test('the app beside a frame running an older review-sync without catchUp: its pull resolves false and writes nothing', async () => {
+  // the frame loads /_template/review-sync.js and the app /lessons/_assets/review-sync.js: two cache entries, two versions
+  const store = new Map(), net = { server: { updated: 4, data: { c: [c('a'), c('b')] } } }
+  const app = browser({ docId: null, path: '/app/', store, net })
+  const frame = browser({ docId: 'L1', path: '/lessons/L1/', framed: true, store, net, parent: app.win })
+  app.win.frames.push(frame.win)
+  frame.set('anno:L1', [c('a')])
+  frame.set('tl-sync:L1', { at: 3, sig: JSON.stringify({ c: [c('a')] }) })
+  frame.win.TutorSync = { hosts: (k) => k === 'L1', send: async () => false } // the older copy: no catchUp
+  assert.equal(await app.win.TutorSync.pull('/api/', 'L1'), false)
+  await app.settle()
+  assert.deepEqual(frame.ls('anno:L1'), [c('a')])
+  assert.equal(frame.ls('tl-sync:L1').at, 3)
+  assert.deepEqual(app.gets, [])
+})

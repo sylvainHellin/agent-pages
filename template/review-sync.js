@@ -171,12 +171,18 @@
     return host ? host.send(k, keepalive) : pushMerge(api, lessonPath(slug), k, keepalive);
   }
   // The app's pull; for a page its frame shows, the page catches up itself (it waits while the reader types and
-  // reloads when it took a newer state in), so the app has nothing to reload.
+  // reloads when it took a newer state in), so the app has nothing to reload. A frame may run an older copy of
+  // this file (the frame and the app load it from two URLs, two service-worker cache entries) without catchUp:
+  // then nothing is pulled for that page, since writing its storage would be overwritten by report.js there.
   function pull(api, slug, k) {
     if (!slug) return Promise.resolve(false);
     k = k || slug;
     var host = hostOf(k);
-    if (host) return host.catchUp(k).then(function () { return false; }, function () { return false; });
+    if (host) {
+      if (typeof host.catchUp !== 'function') return Promise.resolve(false);
+      return Promise.resolve().then(function () { return host.catchUp(k); })
+        .then(function () { return false; }, function () { return false; });
+    }
     return pullFrom(api, lessonPath(slug), k);
   }
 
