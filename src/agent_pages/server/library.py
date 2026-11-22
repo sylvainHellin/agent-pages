@@ -487,6 +487,32 @@ def _shared(item: dict) -> SharedKey:
     return SharedKey(f"data-doc-id {item['key']!r} is used by several pages: {', '.join([item['url'], *item['shared']])}")
 
 
+def update_items(body) -> list[dict]:
+    """One status for several pages ({"ids": [...], "status": ...}), all or none, in one write of items.json.
+    KeyError: an id names no page; MetaError: a bad body or status; SharedKey: a page's data-doc-id is shared."""
+    if not isinstance(body, dict) or set(body) != {"ids", "status"}:
+        raise MetaError('the body must be {"ids": [...], "status": ...}')
+    ids = body["ids"]
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+        raise MetaError("ids must be a list of page ids")
+    patch = _check({"status": body["status"]})
+    by_id = {i["id"]: i for i in list_items()}
+    wanted = list(dict.fromkeys(ids))
+    for rid in wanted:
+        if rid not in by_id:
+            raise KeyError(rid)
+        if by_id[rid]["shared"]:
+            raise _shared(by_id[rid])
+    with _lock:
+        items = _items()
+        now = time.time()
+        for rid in wanted:
+            _store(items, by_id[rid], dict(patch), now)
+        _write_json(ITEMS, items)
+    fresh = {i["id"]: i for i in list_items()}
+    return [fresh[rid] for rid in wanted if rid in fresh]
+
+
 def _set_marker(url: str, kind: str) -> None:
     found = _pages.page_file(url) if _pages is not None else None
     if found is None:

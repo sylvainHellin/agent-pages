@@ -651,6 +651,43 @@ class ServerRoutes(unittest.TestCase):
         self.assertEqual(self.patch(rid, {"status": "done"}, {"Origin": "https://evil.example"})[0], 403)
         self.assertEqual(self.items()["/documents/area/plain.html"]["status"], "open")
 
+    def patch_many(self, body: dict, headers: dict | None = None) -> tuple[int, dict]:
+        req = urllib.request.Request(f"{self.base}/api/items", method="PATCH", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json", **(headers or {})})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    def test_patch_many(self):
+        self.write_page("area/twin-a.html", REVIEW_PAGE.format(id="twin"))
+        self.write_page("area/reports/twin-b.html", REVIEW_PAGE.format(id="twin"))
+        items = self.items()
+        ids = [items[u]["id"] for u in ("/documents/area/plain.html", INPLACE_URL, f"/lessons/{SLUG}/")]
+        writes = mock.patch.object(library, "_write_json", wraps=library._write_json)
+        with writes as w:
+            status, r = self.patch_many({"ids": ids, "status": "done"})
+        self.assertEqual(status, 200, r)
+        self.assertEqual(w.call_count, 1)  # one write for the whole selection
+        self.assertEqual([i["status"] for i in r["items"]], ["done"] * 3)
+        self.assertEqual({i["id"] for i in r["items"]}, set(ids))
+        items = self.items()
+        self.assertEqual([items[u]["status"] for u in ("/documents/area/plain.html", INPLACE_URL, f"/lessons/{SLUG}/")],
+                         ["done"] * 3)
+        before = self.stored()
+        twin = items["/documents/area/twin-a.html"]["id"]
+        for body, code in (({"ids": ids, "status": "sent"}, 400), ({"ids": ids, "status": "later"}, 400),
+                           ({"ids": [], "status": "open"}, 400), ({"ids": "x", "status": "open"}, 400),
+                           ({"ids": ids, "status": "open", "tags": []}, 400), ({"ids": ids}, 400),
+                           ({"ids": [*ids, "r0000000000000000"], "status": "open"}, 404),
+                           ({"ids": [*ids, twin], "status": "open"}, 409)):
+            with self.subTest(body=body):
+                self.assertEqual(self.patch_many(body)[0], code)
+                self.assertEqual(self.stored(), before)  # all or nothing
+        self.assertEqual(self.patch_many({"ids": ids, "status": "open"}, {"Origin": "https://evil.example"})[0], 403)
+        self.assertEqual(self.stored(), before)
+
     def test_app_and_health(self):
         self.assertIn(self.get("/")[0], (200, 503))  # 503 until apps/ui is built
         self.assertEqual(json.loads(self.get("/healthz")[1]), {"ok": True})

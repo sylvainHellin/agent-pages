@@ -14,6 +14,8 @@
                                  projects, topic, summary, sessions, origin ("report" or "tutor"), slug (lessons)
   PATCH /api/items/<id>          {status?, tags?, projects?, topic?, summary?, title?}: stored in _data/items.json; the
                                  lesson tag of a page under a root adds or removes the lesson marker in its file
+  PATCH /api/items               {"ids": [...], "status": open|done|archived}: one status for several pages, all or
+                                 none (404 for an unknown id, 409 for a shared data-doc-id), in one write
   GET  /index.json               the indexed pages without the lesson marker, newest first, for scripts
   GET  /api/pages/status?url=u   {"sha256" of the page file, "shared": other pages with its data-doc-id}: what
                                  `agent-pages open` waits for before it opens the server's copy
@@ -420,15 +422,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         p = unquote(urlsplit(self.path).path)
-        if not p.startswith("/api/items/"):
+        if p != "/api/items" and not p.startswith("/api/items/"):
             return self.send_error(HTTPStatus.NOT_FOUND)
         if not self._same_origin():
             return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
         rid = p[len("/api/items/"):].strip("/")
         try:
+            if not rid:
+                return self._json({"items": library.update_items(self._body())})
             return self._json(library.update_item(rid, self._body()))
-        except KeyError:
-            return self._json({"error": "no such page"}, HTTPStatus.NOT_FOUND)
+        except KeyError as e:
+            return self._json({"error": f"no such page: {e.args[0]}" if e.args else "no such page"}, HTTPStatus.NOT_FOUND)
         except library.SharedKey as e:
             return self._json({"error": str(e)}, HTTPStatus.CONFLICT)
         except library.MetaError as e:
