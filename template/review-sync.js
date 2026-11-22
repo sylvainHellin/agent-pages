@@ -5,7 +5,8 @@
      TutorSync.page(opts)       a page the server serves: the server puts this script and a call with the stored state
                                 into the page's head, before report.js, so the page starts from the newest state; then
                                 it pushes every 1.5 s, when hidden or left, and pulls (reloading if needed) when it comes
-                                back to the front. opts = {api, path: 'reviews/<id>' | 'lessons/<slug>/review',
+                                back to the front, and at load when the app's service worker served it (its offline
+                                copy may carry an older state). opts = {api, path: 'reviews/<id>' | 'lessons/<slug>/review',
                                 state: {updated, data}, lesson, shared: [urls of other pages with the same data-doc-id]}
      TutorSync.pull(api, slug)  the library app (apps/ui), before a lesson page loads and when it comes back to the front;
                                 resolves true when it changed what is stored on this device
@@ -168,6 +169,9 @@
     });
     window.addEventListener('pagehide', function () { pushTo(api, path, k, true); });
     window.addEventListener('pageshow', function (e) { if (e && e.persisted) back(); });
+    // The app's service worker serves a page from its offline cache first, so the state in its head may be old.
+    var sw = window.navigator && window.navigator.serviceWorker;
+    if (sw && sw.controller) back();
   }
 
   window.TutorSync = { pull: pull, push: push, read: read, merge: merge, page: page };

@@ -7,10 +7,11 @@ import vm from 'node:vm'
 
 const SRC = readFileSync(new URL('../template/review-sync.js', import.meta.url), 'utf8')
 
-function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = false } = {}) {
+function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = false, controlled = false } = {}) {
   const store = new Map()
   const listeners = {}
   const posts = []
+  const gets = []
   let server = { updated: 0, data: {} }
   const win = {
     localStorage: {
@@ -31,7 +32,9 @@ function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = fa
     setInterval: () => 0,
     setTimeout: (f) => setTimeout(f, 0),
     addEventListener: (t, f) => ((listeners[t] = listeners[t] || []).push(f)),
+    navigator: { serviceWorker: { controller: controlled ? {} : null } },
     fetch: async (url, opts = {}) => {
+      if (opts.method !== 'POST') gets.push(url)
       if (opts.method === 'POST') {
         const body = JSON.parse(opts.body)
         posts.push({ url, data: body.data })
@@ -48,7 +51,7 @@ function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = fa
   const ls = (k) => (store.has(k) ? JSON.parse(store.get(k)) : undefined)
   const set = (k, v) => store.set(k, JSON.stringify(v))
   return {
-    win, ls, set, posts, listeners,
+    win, ls, set, posts, gets, listeners,
     setServer: (s) => { server = s },
     fire: async (t) => { for (const f of listeners[t] || []) f(); await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)) },
   }
@@ -135,6 +138,25 @@ test('page: newer state from another device reloads the page when it comes back 
   await b.fire('visibilitychange')
   assert.deepEqual(b.ls('anno:doc-1'), [c('far')])
   assert.equal(b.win.location.reloaded, 1)
+})
+
+test('page: opened from the offline cache, it pulls once at load and reloads when another device wrote since', async () => {
+  // the service worker serves the cached copy first, so the state in its head can be older than the server's
+  const b = browser({ controlled: true })
+  b.setServer({ updated: 9, data: { c: [c('far')] } })
+  b.win.TutorSync.page({ api: '/api/', path: 'reviews/r1', state: { updated: 1, data: {} } })
+  await tick()
+  await tick()
+  assert.deepEqual(b.gets, ['/api/reviews/r1'])
+  assert.deepEqual(b.ls('anno:doc-1'), [c('far')])
+  assert.equal(b.win.location.reloaded, 1)
+})
+
+test('page: served by the server itself, its head is current and nothing is pulled at load', async () => {
+  const b = browser()
+  b.win.TutorSync.page({ api: '/api/', path: 'reviews/r1', state: { updated: 1, data: {} } })
+  await tick()
+  assert.deepEqual(b.gets, [])
 })
 
 test('page: a lesson inside the app leaves the focus pull to the app', async () => {
