@@ -148,7 +148,7 @@ test('liveAssets: cached app files the current shell still reaches, directly or 
 
 // The worker itself, with stubbed caches, fetch and clients. files: path under the scope -> body, or {body, etag, type};
 // the server answers 304 to a request with the file's ETag in If-None-Match, and nothing at all while w.down is true
-// (or, for one file, while its down is true).
+// (or, for one file, while its down is true); a file with a wait promise answers once it resolves.
 const typeOf = (rel) => (/\.css$/.test(rel) ? 'text/css' : /\.m?js$/.test(rel) ? 'text/javascript' : /\.(png|jpe?g|webp|svg)$/.test(rel) ? 'image/png'
   : /^api\//.test(rel) ? 'application/json' : 'text/html')
 function worker(files) {
@@ -201,6 +201,7 @@ function worker(files) {
     if (!(rel in files)) return res('not found', { status: 404 })
     const f = typeof files[rel] === 'string' ? { body: files[rel] } : files[rel]
     if (f.down) throw new TypeError('Failed to fetch')
+    if (f.wait) await f.wait
     const etag = f.etag || '"new"'
     if (inm === etag) return res('', { status: 304, etag })
     return res(f.body, { etag, type: f.type || typeOf(rel) })
@@ -381,6 +382,22 @@ test('auto: a page saved with Download while a run is saving it stays the reader
   const r = await auto(w, ['documents/a/other.html']) // d1 and d2 are done now
   assert.deepEqual([...r.evicted].map((u) => u.slice(SCOPE.length)), ['documents/a/d2.html'])
   assert.deepEqual(await pagesCached(w), ['documents/a/d1.html', 'documents/a/img/d1.png'])
+})
+
+test('auto: each page goes into the record once saved, so a run cut short (the worker stopped) can still evict it', async () => {
+  let release
+  const files = {
+    'documents/a/r1.html': pageHtml('img/r1.png'), 'documents/a/img/r1.png': 'R', '_template/report.css': 'body{}',
+    'documents/a/r2.html': { body: '<!doctype html>r2', wait: new Promise((r) => { release = r }) },
+  }
+  const w = worker(files)
+  const run = auto(w, ['documents/a/r1.html', 'documents/a/r2.html'])
+  for (let i = 0; i < 50 && !(await w.keys(SW.CACHES.pages)).includes(SCOPE + 'documents/a/img/r1.png'); i++) await new Promise((r) => setTimeout(r, 1))
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  const rec = JSON.parse((await w.text(SW.CACHES.meta, SCOPE + '.agent-pages-auto.json')) ?? '{}')
+  assert.deepEqual([...(rec.pages?.[SCOPE + 'documents/a/r1.html'] ?? [])].sort(), [SCOPE + '_template/report.css', SCOPE + 'documents/a/img/r1.png'])
+  release()
+  await run
 })
 
 test('auto: a record in the first layout ({pageUrl: [fileUrl]}) is read as the pages auto saved', async () => {

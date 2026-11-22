@@ -428,14 +428,32 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
               if (!count(u, n)) return
               return store(s, res).then(function (ok) {
                 if (!ok) return
-                if (added[owner]) added[owner].push(s.key)
+                added[owner].push(s.key)
                 if (/text\/css/.test(res.headers.get('Content-Type') || '')) return res.text().then(function (t) { return files(SW.cssRefs(t, u), owner) })
               })
             })
           })
         }).catch(function () {})
       }
-      function page(u, rec) {
+      /* each page goes into the record as soon as it is saved, and the files it added once they are, so a run cut short
+         (the browser stops an idle worker) still knows what it saved: a page new to the cache becomes auto's, one
+         already auto's stays so, and one opened or saved with Download stays the reader's */
+      function own(key, fresh) {
+        return updateAuto(function (rec) {
+          if (!fresh || rec.manual[key] || rec.pages[key]) return false
+          rec.pages[key] = []
+        }).catch(function () {})
+      }
+      function ownFiles(key) {
+        var mine = added[key]
+        if (!mine.length) return Promise.resolve()
+        return updateAuto(function (rec) {
+          var had = rec.pages[key]
+          if (!had || rec.manual[key]) return false
+          mine.forEach(function (f) { if (had.indexOf(f) < 0) had.push(f) })
+        }).catch(function () {})
+      }
+      function page(u) {
         if (stop) {
           out.notSaved.push(u)
           return Promise.resolve()
@@ -445,6 +463,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
           out.failed.push(u)
           return Promise.resolve()
         }
+        added[s.key] = []
         return lookup(s).then(function (hit) {
           var etag = hit && hit.headers.get('ETag')
           return fetchNet(s.key, { headers: etag ? { 'If-None-Match': etag } : {}, cache: 'no-store', credentials: 'same-origin' }).then(function (res) {
@@ -473,14 +492,13 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
                   return null
                 }
                 out.saved++
-                if (!hit || rec.pages[s.key]) added[s.key] = []
-                return res.text()
+                return own(s.key, !hit).then(function () { return res.text() })
               })
             })
           })
         }).then(function (html) {
           if (html) return files(SW.refsOf(html, s.key), s.key)
-        }).catch(function () { out.failed.push(u) })
+        }).then(function () { return ownFiles(s.key) }, function () { out.failed.push(u) })
       }
       /* the pages auto saved that are no longer in the list, or still in it but past the budget this run, go, with the
          files they added that no saved page uses; a page that could not be reached (out.failed) keeps its copy */
@@ -521,26 +539,16 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
         })
       }
       progress(true)
-      return readAuto().then(function (rec) {
-        function lane() {
-          if (next >= pages.length) return Promise.resolve()
-          var u = pages[next++]
-          return page(u, rec).then(function () {
-            done++
-            progress(true)
-          }).then(lane)
-        }
-        return Promise.all([lane(), lane()])
-      }).then(function () {
-        return updateAuto(function (rec) {
-          Object.keys(added).forEach(function (k) {
-            if (rec.manual[k]) return // saved with Download meanwhile: the reader's
-            var had = rec.pages[k] || []
-            added[k].forEach(function (f) { if (had.indexOf(f) < 0) had.push(f) })
-            rec.pages[k] = had
-          })
-          return evict(rec)
-        })
+      function lane() {
+        if (next >= pages.length) return Promise.resolve()
+        var u = pages[next++]
+        return page(u).then(function () {
+          done++
+          progress(true)
+        }).then(lane)
+      }
+      return Promise.all([lane(), lane()]).then(function () {
+        return updateAuto(evict)
       }).then(function () { return out }).finally(function () {
         autoRunning = false
         progress(false)
