@@ -62,7 +62,7 @@ agent-pages drain                                                 # Mac LaunchAg
 agent-pages lesson new <slug> --title T [--project ID] [...]      # lesson folder in lessons_dir
 agent-pages fig build <file.tex|file.py>                          # figure via tex-fig or matplotlib
 agent-pages config                                                # effective configuration
-agent-pages migrate-items                                         # once: _data/pages.json into _data/items.json
+agent-pages migrate-items                                         # once, with the server stopped: _data/pages.json into _data/items.json
 ```
 
 New pages link `template/` by `file://` path, with the theme and the Vim keys default from the config, so they open from disk with no server.
@@ -77,8 +77,9 @@ Tests: `uv run python -m unittest discover -s tests`.
 - Server state (review sync, inbox, jobs, statuses and tags): `<lessons_dir>/_data/`, never served as files.
 - Status, tags, projects, topic and summary of every page: `<lessons_dir>/_data/items.json`, keyed by the page's `data-doc-id` (its URL when it has none, `tutor:<slug>` for a tutor lesson), so a page that keeps its id keeps them through a move; the lesson tag of a page under a root is its marker, in the file.
   Only a change in the app writes it, and only the fields it sets; every other field of a tutor lesson comes from its `lesson.json` (status `open`, `done` or `archived`; `learning` and `understood` still read as open and done), which the server reads and never writes.
-  The older URL-keyed `_data/pages.json` is not read for the list: `agent-pages migrate-items`, run once by hand, copies the entry of each URL that names a page today into `items.json` under that page's key (`understood` becomes `done`, `learning` becomes `open`, a field `items.json` already has stays), prints and drops the URLs with no page now, and renames the file `pages.json.migrated`.
+  The older URL-keyed `_data/pages.json` is not read for the list: `agent-pages migrate-items`, run once by hand with the server stopped (its `items.json` lock holds only within one process), copies the entry of each URL that names a page today into `items.json` under that page's key (`understood` becomes `done`, `learning` becomes `open`, a field `items.json` already has stays), prints and drops the URLs with no page now, and renames the file `pages.json.migrated`.
   A `lesson.json` the tutor rewrites after a change in the app wins for each field whose value it changed.
+  A field the tutor changes and later changes back to its value at that change in the app, with no app change between, shows the app's older value again, since it looks like a rewrite that left the field alone.
 - Comments, answers and notes of every page the server serves: `<lessons_dir>/_data/review/` (lessons by slug, report pages under `pages/` by their `data-doc-id`); a page opened as a file keeps them in that browser only.
 - Projects: the open notes in `<vault>/02-areas/` and `<vault>/01-projects/`; the id is the note name, and a lesson created inside the repo a note names in `repo:` is linked to it.
 

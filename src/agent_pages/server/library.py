@@ -24,7 +24,9 @@ a tutor lesson's entry lacks comes from its lesson.json, read on every listing a
 open|done|archived (learning and understood still read as open and done) the tutor skill sets. A page under a root
 has only its entry: the older _data/pages.json (URL-keyed, so its fields were lost on a move and inherited by a new
 page at an old URL) is never read for the list; `agent-pages migrate-items` moves it into items.json once. A lesson.json newer than the stored entry's `updated` wins for a field whose value it
-changed since that PATCH (`lesson` keeps the values lesson.json had then), so the tutor's later edits show. A PATCH
+changed since that PATCH (`lesson` keeps the values lesson.json had then), so the tutor's later edits show. Known
+limitation: a field the tutor changes and later changes back to its value at that PATCH, with no PATCH between,
+shows the stored value again, since it looks like a rewrite that left the field alone. A PATCH
 or a send first takes every field lesson.json wins into the entry (and `lesson`), so a change to other fields never
 hands a won field back to the older stored value.
 """

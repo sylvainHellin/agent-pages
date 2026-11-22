@@ -2,7 +2,8 @@
 
 ## 2026-11-22 - _data/pages.json is migrated once into items.json by agent-pages migrate-items, and the list never reads it
 Why: pages.json is keyed by URL while items.json is keyed by data-doc-id, so the read-time fallback lost a page's fields when the page moved and handed them to any new page written at the old URL; Sylvain's pages.json held only 3 entries, each {"status": "understood"}.
-Rule: `agent-pages migrate-items`, run by hand, copies the fields of each pages.json URL that names an indexed page into that page's items.json entry (understood -> done, learning -> open), never over a field the entry already has, under the same lock as the other items.json writes.
+Rule: `agent-pages migrate-items`, run by hand, copies the fields of each pages.json URL that names an indexed page into that page's items.json entry (understood -> done, learning -> open), never over a field the entry already has.
+Rule: migrate-items runs once with the server stopped, since it is its own process and the items.json lock holds only within one process.
 Rule: a URL with no page now, or whose data-doc-id several pages share, is printed and dropped; pages.json is then renamed pages.json.migrated, so a second run does nothing; the server never runs the migration at start.
 Rule: lesson.json stays a live fallback for tutor lessons, since the tutor skill keeps writing it.
 Rejected: keeping the read-time fallback (it loses fields on a move); migrating at server start (an invisible write to Sylvain's data).
