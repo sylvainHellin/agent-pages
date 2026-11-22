@@ -402,17 +402,46 @@ class SendToAgent(unittest.TestCase):
         until(lambda: agents.live(S_NEW) is None)
         self.assertEqual(self.send()[1]["route"], "none")
 
-    def test_a_new_pid_takes_back_claimed_sends_not_started(self):
-        s = self.listen(S_NEW, pid=os.getpid())
+    def claimed_by(self, pid: int, host: str = HOST) -> None:
+        s = self.listen(S_NEW, pid=pid, host=host)
         self.send()
         until(s.sends)
-        self.req("POST", "/api/agents/claim/send-0001")
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001", {"pid": pid, "host": host})[0], 200)
         s.close()
         until(lambda: agents.live(S_NEW) is None)
-        same = self.listen(S_NEW, pid=os.getpid())  # the same pi reconnecting: its claim stands
+
+    def registers(self, pid: int, host: str = HOST) -> str:
+        """The send's state once a pi of the session registers from pid and host (and goes again)."""
+        s = self.listen(S_NEW, pid=pid, host=host)
+        time.sleep(0.1)
+        state = self.record()["state"]
+        s.close()
+        until(lambda: agents.live(S_NEW) is None)
+        return state
+
+    def test_a_live_local_claimer_keeps_its_claim(self):
+        self.claimed_by(os.getpid())  # this test's process: alive
+        self.assertEqual(self.registers(os.getppid()), "claimed")
+        self.assertEqual(self.registers(4242, "sylvain-mac"), "claimed")
+
+    def test_a_remote_claimer_loses_its_claim_only_to_its_own_host(self):
+        self.claimed_by(4242, "sylvain-mac")
+        self.assertEqual(self.registers(os.getpid()), "claimed")  # this host cannot tell whether the Mac's pi lives
+        self.assertEqual(self.registers(4242, "sylvain-mac"), "claimed")  # the same pi reconnecting
+        self.assertEqual(self.registers(4243, "sylvain-mac"), "pending")  # a new pi there: the old one is gone
+
+    def test_a_new_pid_takes_back_claimed_sends_not_started(self):
+        dead = 2 ** 22 + 12345  # no such process: the first pi was SIGKILLed
+        s = self.listen(S_NEW, pid=dead)
+        self.send()
+        until(s.sends)
+        self.req("POST", "/api/agents/claim/send-0001", {"pid": dead, "host": HOST})
+        s.close()
+        until(lambda: agents.live(S_NEW) is None)
+        same = self.listen(S_NEW, pid=dead)  # the same pi reconnecting: its claim stands
         time.sleep(0.2)
         self.assertEqual((self.record()["state"], same.sends()), ("claimed", []))
-        other = self.listen(S_NEW, pid=os.getppid())  # another pi (the first was SIGKILLed): claim returned
+        other = self.listen(S_NEW, pid=os.getppid())  # another pi, the claimer's pid dead: claim returned
         self.assertEqual(until(other.sends, what="the re-push to the new pi")[0]["id"], "send-0001")
         self.assertEqual(self.record()["state"], "pending")
         self.assertEqual(self.req("POST", "/api/agents/claim/send-0001")[0], 200)

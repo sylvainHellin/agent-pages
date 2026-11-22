@@ -22,8 +22,9 @@ repeat is the same send) and the export beside it as <id>.md, then picks a route
   failed    the session file was written in the last FRESH_S, or its working folder is gone
   none      none of these: the app offers a new agent, POST /api/send {..., "new": true}, which runs `new` in the
             page's folder and adds the new agent's session to the page
-POST /api/agents/release/<id> hands a claimed send that did not start back (pending, pushed again); a session that
-registers from another pid or host takes back its claimed sends that never started. GET /api/sends?page=<id> lists
+POST /api/agents/release/<id> hands a claimed send that did not start back (pending, pushed again); a new
+registration of the session takes back its claimed sends that never started when their claimer is gone: a dead pid on
+this host, or for a claimer on another host a registration from that host with another pid. GET /api/sends?page=<id> lists
 a page's sends and GET /api/sends/<id>/markdown serves the export.
 
 The page is listed as sent (library.mark_sent) when the delivery starts: POST /api/agents/started for a pi's
@@ -271,8 +272,7 @@ def _register(lst: Listener) -> tuple["Listener | None", list[dict]]:
         push = []
         for rec in sorted(_records(), key=lambda r: r.get("created", 0)):
             if rec.get("state") == "claimed" and rec.get("session") == s and rec.get("route") not in SERVER_ROUTES:
-                claimer = rec.get("claimer") or {}
-                if (claimer.get("pid"), claimer.get("host")) != (reg["pid"], reg["host"]):
+                if _claimer_gone(rec.get("claimer") or {}, reg):
                     rec.update(state="pending", claimer=None, claimed_at=None)
                     _save(rec)
             if rec.get("state") != "pending":
@@ -285,6 +285,20 @@ def _register(lst: Listener) -> tuple["Listener | None", list[dict]]:
                 _save(rec)
                 push.append(rec)
     return old, push
+
+
+def _claimer_gone(claimer: dict, reg: dict) -> bool:
+    """Whether a new registration of the session shows that the pi holding a claim is gone: on this host, its pid
+    is dead; on another host, which this one cannot look into, a pi there registered with another pid. The claimer
+    itself registering again is never gone."""
+    pid, host = claimer.get("pid"), claimer.get("host")
+    if not isinstance(pid, int) or not host:
+        return True  # a claim that names no pi has no one to wait for
+    if (pid, host) == (reg["pid"], reg["host"]):
+        return False
+    if host == HOST:
+        return not _alive(pid)
+    return reg["host"] == host and reg["pid"] != pid
 
 
 def _unregister(lst: Listener) -> None:
