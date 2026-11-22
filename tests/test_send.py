@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import stat
 import sys
@@ -555,6 +556,18 @@ class SendToAgent(unittest.TestCase):
         self.listen(S_LESSON, where="t9")
         body = self.send(rid=rid)[1]
         self.assertEqual((body["route"], body["where"]), ("live", "t9"))
+
+
+class Suppressions(unittest.TestCase):
+    def test_every_noqa_states_its_reason(self):
+        """A lint suppression in the server carries `# noqa: CODE - why`; a bare one hides a fixable warning."""
+        src = Path(agents.__file__).resolve().parents[1]
+        bare = []
+        for f in sorted(src.rglob("*.py")):
+            for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                if "# noqa" in line and not re.search(r"# noqa: [A-Z0-9, ]+ - \S", line):
+                    bare.append(f"{f.relative_to(src)}:{n}")
+        self.assertEqual(bare, [])
 
 
 if __name__ == "__main__":

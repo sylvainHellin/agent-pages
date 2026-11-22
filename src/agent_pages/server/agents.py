@@ -227,7 +227,9 @@ def _registered(session: str) -> dict | None:
 
 
 def _params(query: dict) -> tuple[str, int, str, str, str]:
-    one = lambda k: (query.get(k) or [""])[0].strip()  # noqa: E731
+    def one(k: str) -> str:
+        return (query.get(k) or [""])[0].strip()
+
     session, host, harness, where = one("session"), one("host"), one("harness"), one("where")
     if not UUID_RE.match(session):
         raise SendError("session must be a pi session id (a UUID)")
