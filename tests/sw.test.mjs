@@ -4,6 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import vm from 'node:vm'
 
 const SRC = readFileSync(new URL('../apps/ui/public/sw.js', import.meta.url), 'utf8')
@@ -458,4 +459,35 @@ test('auto: a page no longer open is evicted when it was auto-downloaded; one sa
     '_template/report.css', 'documents/a/hand.html', 'documents/a/img/later.png', 'documents/a/img/seen.png', 'documents/a/img/shared.png',
     'documents/a/img/still.png', 'documents/a/later.html', 'documents/a/seen.html', 'documents/a/still.html',
   ])
+})
+
+// A page as the server serves it: its head gets review-sync.js and agent-send.js from app.py's inject_boot, so the
+// saved copy has to keep them for comments and Send to agent (its offline copy of the export) to work with no network.
+const servedPage = (body) => execFileSync('uv', ['run', '--quiet', 'python', '-c', `import json, sys
+from agent_pages.server.app import inject_boot
+sys.stdout.write(inject_boot(sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])))`,
+`<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/_template/report.css">
+<script src="/_template/report.js" defer></script></head><body>${body}</body></html>`,
+JSON.stringify({ api: '/api/', path: 'reviews/d', lesson: false, shared: [], state: null }),
+JSON.stringify({ api: '/api/', page: 'd', new: false })], { cwd: new URL('..', import.meta.url), encoding: 'utf8' })
+
+test('Download and auto save the template scripts a served page loads, agent-send.js too, and serve them offline', async () => {
+  const html = servedPage('Answer.')
+  const template = ['_template/report.css', '_template/report.js', '_template/review-sync.js', '_template/agent-send.js']
+  for (const [how, ask] of [
+    ['Download', (w) => w.ask({ type: 'agent-pages:prefetch', urls: [SCOPE + 'documents/a/p.html'] })],
+    ['auto', (w) => auto(w, ['documents/a/p.html'])],
+  ]) {
+    const files = { 'documents/a/p.html': html }
+    for (const t of template) files[t] = `/* ${t} */`
+    const w = worker(files)
+    await ask(w)
+    assert.deepEqual(await pagesCached(w), ['documents/a/p.html', ...template].sort(), how)
+    w.down = true
+    for (const t of template) {
+      const r = await w.request(SCOPE + t, { mode: 'no-cors', cache: 'default' })
+      assert.equal(r.status, 200, `${how}: ${t}`)
+      assert.equal(await r.text(), files[t], `${how}: ${t}`)
+    }
+  }
 })
