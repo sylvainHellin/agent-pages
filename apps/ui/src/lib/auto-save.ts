@@ -58,6 +58,12 @@ export function autoSaver(deps: AutoDeps) {
   }
 }
 
+/** How many of the pages the budget left out (full URLs) this device cannot show offline: the worker evicts its own
+    copies of them, but a page opened or saved with Download stays. saved: the pathnames of the pages cached now. */
+export function notSavedCount(notSaved: string[], saved: Set<string>): number {
+  return notSaved.filter((u) => !saved.has(new URL(u).pathname)).length
+}
+
 type KV = Pick<Storage, 'getItem' | 'setItem'>
 
 /** On unless the reader turned it off. */

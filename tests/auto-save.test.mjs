@@ -2,7 +2,7 @@
 //     node --test tests/*.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { AUTO_KEY, autoSaver, readAutoSetting, writeAutoSetting } from '../apps/ui/src/lib/auto-save.ts'
+import { AUTO_KEY, autoSaver, notSavedCount, readAutoSetting, writeAutoSetting } from '../apps/ui/src/lib/auto-save.ts'
 
 const items = [
   { url: '/documents/a/old.html', status: 'open', changed: 10 },
@@ -89,6 +89,12 @@ test('one run at a time', async () => {
   release({ notSaved: [] })
   await first
   assert.equal(asked.length, 1)
+})
+
+test('the pages left out by the budget that are still on the device (opened, or saved with Download) are not counted', () => {
+  const out = ['https://box.ts.net/documents/a/x.html', 'https://box.ts.net/documents/a/opened.html', 'https://box.ts.net/lessons/l/']
+  assert.equal(notSavedCount(out, new Set(['/documents/a/opened.html', '/documents/a/other.html'])), 2)
+  assert.equal(notSavedCount([], new Set()), 0)
 })
 
 test('the setting: on unless the reader turned it off, kept in localStorage', () => {

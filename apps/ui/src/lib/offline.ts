@@ -5,7 +5,7 @@
 import { useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import { APP_ROOT, rootUrl } from './api'
-import { AUTO_BUDGET, autoSaver, readAutoSetting, writeAutoSetting, type AutoReason, type AutoResult } from './auto-save'
+import { AUTO_BUDGET, autoSaver, notSavedCount, readAutoSetting, writeAutoSetting, type AutoReason, type AutoResult } from './auto-save'
 import { askWorker, type Msg } from './worker-ask'
 
 export interface PrefetchResult {
@@ -80,7 +80,8 @@ const runAuto = autoSaver({
 let shownNotSaved = 0
 
 /** Have the worker save every Open page of `items` (the list just loaded from the server), evict the ones it saved that
-    are no longer open, and say once when the budget left some out. Nothing when the switch is off. */
+    are no longer open or no longer fit the budget, and say once how many Open pages this device cannot show offline
+    (a page opened or saved with Download stays). Nothing when the switch is off. */
 export async function autoSave(items: { url: string; status: string; changed: number }[], reason: AutoReason): Promise<void> {
   let r: AutoResult | null
   try {
@@ -89,12 +90,12 @@ export async function autoSave(items: { url: string; status: string; changed: nu
     return // no worker, or it did not answer in time
   }
   if (!r || r.busy || r.error) return
-  refreshSaved()
-  const n = r.notSaved.length
+  await refreshSaved()
+  const n = notSavedCount(r.notSaved, saved)
   if (n && n !== shownNotSaved) {
     toast.warning(`${n} Open page${n > 1 ? 's' : ''} not saved offline`, {
       id: 'auto-save',
-      description: `Over the ${Math.round(AUTO_BUDGET / 1e6)} MB kept for Open pages: the ones changed last are saved`,
+      description: `Over the ${Math.round(AUTO_BUDGET / 1e6)} MB kept for Open pages: the ones changed last are saved. Open or download a page to keep it.`,
     })
   }
   shownNotSaved = n

@@ -19,8 +19,9 @@
      {type: 'agent-pages:auto', urls, budget}       every Open page (urls, newest first): each page asked with its cached
                                                     ETag (304: nothing downloaded), two at a time, with what it references,
                                                     until the pages and files of the list pass budget (150 MB), the rest not
-                                                    saved; then the pages this saved before that are no longer in urls are
-                                                    evicted with the files they added that no saved page still uses
+                                                    saved; then the pages this saved before that are no longer in urls, or
+                                                    are past the budget, are evicted with the files they added that no saved
+                                                    page still uses (a page it could not reach keeps its copy)
      {type: 'agent-pages:warm', urls}               what the app loaded before this worker controlled it
      {type: 'agent-pages:cached'}                   the pages that are saved, {urls: [...]}
    Network state changes are posted as {type: 'agent-pages:net', online}, a page put in the cache as
@@ -421,7 +422,10 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
           return fetchNet(s.key, { headers: etag ? { 'If-None-Match': etag } : {}, cache: 'no-store', credentials: 'same-origin' }).then(function (res) {
             if (res.status === 304 && hit) {
               return size(hit).then(function (n) {
-                if (!count(u, n)) return null // saved already, so it stays; the pages after it are not saved
+                if (!count(u, n)) {
+                  out.notSaved.push(u) // past the budget: evicted below if auto saved it
+                  return null
+                }
                 out.unchanged++
                 return hit.text()
               })
@@ -450,10 +454,11 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
           if (html) return files(SW.refsOf(html, s.key), s.key)
         }).catch(function () { out.failed.push(u) })
       }
-      /* the pages auto saved that are no longer in the list go, with the files they added that no saved page uses */
+      /* the pages auto saved that are no longer in the list, or still in it but past the budget this run, go, with the
+         files they added that no saved page uses; a page that could not be reached (out.failed) keeps its copy */
       function evict(rec) {
-        var open = new Set(pages)
-        var gone = Object.keys(rec).filter(function (u) { return !open.has(u) })
+        var open = new Set(pages), over = new Set(out.notSaved), failed = new Set(out.failed)
+        var gone = Object.keys(rec).filter(function (u) { return !open.has(u) || (over.has(u) && !failed.has(u)) })
         if (!gone.length) return Promise.resolve()
         return caches.open(SW.CACHES.pages).then(function (c) {
           return Promise.all(gone.map(function (u) { return c.delete(u) }))

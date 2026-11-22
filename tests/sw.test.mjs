@@ -147,7 +147,8 @@ test('liveAssets: cached app files the current shell still reaches, directly or 
 })
 
 // The worker itself, with stubbed caches, fetch and clients. files: path under the scope -> body, or {body, etag, type};
-// the server answers 304 to a request with the file's ETag in If-None-Match, and nothing at all while w.down is true.
+// the server answers 304 to a request with the file's ETag in If-None-Match, and nothing at all while w.down is true
+// (or, for one file, while its down is true).
 const typeOf = (rel) => (/\.css$/.test(rel) ? 'text/css' : /\.m?js$/.test(rel) ? 'text/javascript' : /\.(png|jpe?g|webp|svg)$/.test(rel) ? 'image/png'
   : /^api\//.test(rel) ? 'application/json' : 'text/html')
 function worker(files) {
@@ -199,6 +200,7 @@ function worker(files) {
     }
     if (!(rel in files)) return res('not found', { status: 404 })
     const f = typeof files[rel] === 'string' ? { body: files[rel] } : files[rel]
+    if (f.down) throw new TypeError('Failed to fetch')
     const etag = f.etag || '"new"'
     if (inm === etag) return res('', { status: 304, etag })
     return res(f.body, { etag, type: f.type || typeOf(rel) })
@@ -351,6 +353,22 @@ test('auto: past the budget it stops; the rest is not saved and not even asked f
   assert.equal(r.bytes, 216)
   // two at a time: the page beside the one that passed the budget may be on its way already, none after it
   assert.deepEqual(w.fetched.map((f) => f[0]).filter((p) => /b[56]/.test(p)), [])
+})
+
+test('auto: a page it saved before that is still open but now past the budget is evicted; one it could not reach stays', async () => {
+  const files = {}
+  for (let i = 1; i <= 3; i++) files[`documents/a/b${i}.html`] = `<!doctype html><body>${'x'.repeat(80)}</body>` // 108 bytes
+  const w = worker(files)
+  const paths = [1, 2, 3].map((i) => `documents/a/b${i}.html`)
+  await auto(w, paths, 1000)
+  assert.deepEqual(await pagesCached(w), paths)
+  files['documents/a/b2.html'] = { body: files['documents/a/b2.html'], down: true } // a network error: never evicted
+  const r = await auto(w, paths, 150) // b1 fits, b3 (unchanged, 304) no longer does
+  assert.deepEqual([...r.notSaved].map((u) => u.slice(SCOPE.length)), ['documents/a/b3.html'])
+  assert.deepEqual([...r.failed].map((u) => u.slice(SCOPE.length)), ['documents/a/b2.html'])
+  assert.deepEqual([...r.evicted].map((u) => u.slice(SCOPE.length)), ['documents/a/b3.html'])
+  assert.deepEqual(await pagesCached(w), ['documents/a/b1.html', 'documents/a/b2.html'])
+  assert.equal(r.bytes, 108)
 })
 
 test('auto: a page no longer open is evicted when it was auto-downloaded; one saved with Download or opened stays', async () => {
