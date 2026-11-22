@@ -4,8 +4,8 @@
 import { useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import { APP_ROOT, rootUrl } from './api'
+import { askWorker, type Msg } from './worker-ask'
 
-type Msg = { type: string; [k: string]: unknown }
 export interface PrefetchResult {
   pages: number
   files: number
@@ -32,27 +32,11 @@ export const useSavedPages = () => useSyncExternalStore(subscribe, savedSnapshot
 
 const supported = () => 'serviceWorker' in navigator && window.isSecureContext && !import.meta.env.DEV
 
-/** A request to the worker that controls the app, answered on a message port. One timer covers the wait for the
-    worker too: `ready` never resolves when register() failed (a first start offline). */
+/** A request to the worker that controls the app (worker-ask.ts: it gives up after `timeout`, also when the worker
+    never registered). */
 async function ask<T>(msg: Msg, timeout = 10_000): Promise<T> {
   if (!supported()) throw new Error('Offline copies need the app over https (or on localhost)')
-  let t: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<never>((_, reject) => {
-    t = setTimeout(() => reject(new Error('The offline worker did not answer')), timeout)
-  })
-  try {
-    const reg = await Promise.race([navigator.serviceWorker.ready, late])
-    const sw = navigator.serviceWorker.controller || reg.active
-    if (!sw) throw new Error('The offline worker is not running yet')
-    const answer = new Promise<T>((resolve) => {
-      const ch = new MessageChannel()
-      ch.port1.onmessage = (e) => resolve(e.data as T)
-      sw.postMessage(msg, [ch.port2])
-    })
-    return await Promise.race([answer, late])
-  } finally {
-    clearTimeout(t)
-  }
+  return askWorker<T>(navigator.serviceWorker, msg, timeout)
 }
 
 export async function refreshSaved(): Promise<void> {
