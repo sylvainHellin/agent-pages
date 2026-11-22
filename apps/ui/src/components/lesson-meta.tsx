@@ -286,9 +286,12 @@ export function ProjectPicker({ id, open, onOpenChange }: { id: string | null; o
   const projects = useStore((s) => s.projects)
   const patch = useStore((s) => s.patchItem)
   const [busy, setBusy] = useState(false)
-  // order fixed while the list is open, so a toggled row does not jump away under the pointer
+  // the projects linked when the list opened sort first and stay put, so a toggled row does not jump away under the pointer
+  const [pinned, setPinned] = useState<{ id: string | null; linked: string[] } | null>(null)
+  if (open && (!pinned || pinned.id !== id)) setPinned({ id, linked: lesson?.projects || [] })
+  else if (!open && pinned) setPinned(null)
   const order = useMemo(() => {
-    const linked = new Set(lesson?.projects || [])
+    const linked = new Set(pinned?.linked || [])
     return [...projects].sort((a, b) => {
       const la = linked.has(a.id), lb = linked.has(b.id)
       if (la !== lb) return la ? -1 : 1
@@ -296,7 +299,7 @@ export function ProjectPicker({ id, open, onOpenChange }: { id: string | null; o
       if (aa !== ab) return aa ? -1 : 1
       return a.id.localeCompare(b.id)
     })
-  }, [open, id, projects]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pinned, projects])
   if (!lesson) return null
   const toggle = async (id: string) => {
     if (busy) return
