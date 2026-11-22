@@ -136,7 +136,7 @@ The app posts the export the page's own Export button builds (`bn.review.markdow
 - `failed`: the session file changed in the last 2 minutes (a pi without the extension may have it open), or the session's working folder is gone; the Export button still works.
 - `none`: nothing holds or stores the sessions; the app then offers Start a new agent, `POST /api/send` with `"new": true`, which starts a Paseo agent in the page's folder on the export and adds its session to the page.
 
-The page is listed as Sent from the claim and re-stamped when the message starts, so it reads as Open again once the agent revises the file.
+The page is listed as Sent when the delivery starts (the pi reports the queued message starting, or the server's Paseo command succeeded), so it reads as Open again once the agent revises the file; a claim that is released or taken back leaves the page as it was.
 `GET /api/sends?page=<page id>` lists a page's sends with their state: `pending`, `claimed`, `started`, `failed`, or `cancelled` when a newer send of the page replaced one still pending.
 The Paseo command lines are the config's `[harness.paseo]` keys; each runs as an argument list with no shell, and only UUIDs, the hex page id and paths the server chose fill their placeholders.
 

@@ -309,14 +309,14 @@ class SendToAgent(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/agents/claim/send-0001")[0], 200)
         rec = self.record()
         self.assertEqual(rec["state"], "claimed")
-        item = self.item()
-        self.assertEqual(item["status"], "sent")
-        self.assertAlmostEqual(item["sent_at"], rec["claimed_at"], places=3)
+        self.assertEqual(self.item()["status"], "open")  # claimed is not delivered yet
         time.sleep(0.05)
         self.assertEqual(self.req("POST", "/api/agents/started/send-0001")[0], 200)
         rec = self.record()
         self.assertEqual(rec["state"], "started")
-        self.assertAlmostEqual(self.item()["sent_at"], rec["started_at"], places=3)  # re-stamped
+        item = self.item()
+        self.assertEqual(item["status"], "sent")
+        self.assertAlmostEqual(item["sent_at"], rec["started_at"], places=3)
         self.assertEqual(self.req("POST", "/api/agents/started/send-0001")[0], 200)  # idempotent
         # the agent revises the page after the send started: listed as open again
         later = rec["started_at"] + 5
@@ -352,6 +352,15 @@ class SendToAgent(unittest.TestCase):
         self.req("POST", "/api/agents/claim/send-0001")
         self.req("POST", "/api/agents/started/send-0001")
         self.assertEqual(self.req("POST", "/api/agents/release/send-0001")[0], 409)  # started: stays started
+
+    def test_a_released_claim_never_lists_the_page_as_sent(self):
+        s = self.listen(S_NEW)
+        self.send()
+        until(s.sends)
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001")[0], 200)
+        self.assertEqual(self.req("POST", "/api/agents/release/send-0001")[0], 200)
+        item = self.item()
+        self.assertEqual((item["status"], item.get("sent_at")), ("open", None))
 
     def test_pending_while_registered_and_pushed_on_reconnect(self):
         s = self.listen(S_NEW, where="t17")

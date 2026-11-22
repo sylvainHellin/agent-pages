@@ -25,8 +25,9 @@ POST /api/agents/release/<id> hands a claimed send that did not start back (pend
 registers from another pid or host takes back its claimed sends that never started. GET /api/sends?page=<id> lists
 a page's sends and GET /api/sends/<id>/markdown serves the export.
 
-The page is listed as sent from the claim (library.mark_sent), re-stamped when the send starts, so it reads as
-open once the agent revises its file. Commands run as argument lists with no shell, never with anything from the
+The page is listed as sent (library.mark_sent) when the delivery starts: POST /api/agents/started for a pi's
+send, the end of the Paseo command for the server's own; it reads as open once the agent revises its file. A claim,
+a release or a claim taken back changes nothing on the page. Commands run as argument lists with no shell, never with anything from the
 page's HTML besides session ids that are UUIDs and the review id.
 """
 
@@ -374,7 +375,6 @@ def claim(send_id: str) -> dict:
             raise LookupError(f"send {send_id} is {rec.get('state')}")
         rec.update(state="claimed", claimed_at=time.time(), claimer=_claimer(rec["session"]))
         _save(rec)
-    _mark_sent(rec, rec["claimed_at"])
     return summary(rec)
 
 
@@ -396,7 +396,7 @@ def release(send_id: str) -> dict:
 
 
 def started(send_id: str) -> dict:
-    """POST /api/agents/started/<id>: the queued message started; the page's sent_at moves to now."""
+    """POST /api/agents/started/<id>: the queued message started; the page is listed as sent from now."""
     with _lock:
         rec = _load(send_id)
         if rec is None:
@@ -407,14 +407,12 @@ def started(send_id: str) -> dict:
             raise LookupError(f"send {send_id} is {rec.get('state')}")
         rec.update(state="started", started_at=time.time())
         _save(rec)
-    _mark_sent(rec, rec["started_at"], restamp=True)
+    _mark_sent(rec, rec["started_at"])
     return summary(rec)
 
 
-def _mark_sent(rec: dict, at: float, restamp: bool = False) -> None:
-    """The page is sent from `at`; a re-stamp only while it is still listed as sent (not set done meanwhile)."""
-    if restamp and (library._items().get(rec["key"]) or {}).get("status") != "sent":
-        return
+def _mark_sent(rec: dict, at: float) -> None:
+    """The page is sent from `at`, when the delivery started: a claim or a release never touches its status."""
     try:
         library.mark_sent(rec["key"], at)
     except OSError as e:
