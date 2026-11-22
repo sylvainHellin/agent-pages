@@ -6,10 +6,11 @@ template and their neighbours by file:///Users/<name>/... or file:///home/<name>
 as paths under the local home, so a page written on either machine resolves on the other, and the server
 rewrites them to its own URLs on the way out.
 
-A page is a lesson when its head carries <meta name="agent-pages-kind" content="lesson"> (KIND_META), and a
-report otherwise. The index lists reports in `pages` and keeps marked pages apart as in-place lessons, each
-under the slug inplace_slug(url); the library (library.py) shows them next to the tutor's lessons.
-set_kind() adds or removes the marker line in a page's text (POST /api/pages/kind).
+A page carries the lesson tag when its head has <meta name="agent-pages-kind" content="lesson"> (KIND_META).
+The index lists unmarked pages in `pages` (/index.json) and keeps marked pages apart as in-place lessons, each
+under the slug inplace_slug(url), whose comments sync by that slug; `entries` holds every listed page with its
+storage key, which the library (library.py) turns into the one list of GET /api/items. set_kind() adds or removes
+the marker line in a page's text and write_kind() writes it to the file (the lesson tag in PATCH /api/items).
 
 What a reader types into a report (comments, answers, notes) is stored on the server under the page's review id,
 review_id(key) with the key its data-doc-id (its URL when it has none), so the record follows the page through a
@@ -27,6 +28,8 @@ import threading
 import time
 from pathlib import Path
 from urllib.parse import quote, unquote
+
+from ..page import page_sessions
 
 PAGE_EXT = {".html", ".htm"}
 ASSET_EXT = {
@@ -99,9 +102,26 @@ def set_kind(text: str, kind: str) -> str:
     return text[:anchor.end()] + nl + KIND_META + text[anchor.end():]
 
 
+def write_kind(real: Path, kind: str) -> bool:
+    """Add or remove the marker in a page file, keeping its mode and date; False when it already has that kind.
+    ValueError when a lesson page has no head."""
+    raw = real.read_bytes()
+    text = raw.decode("utf-8", errors="surrogateescape")
+    if page_kind(text) == kind:
+        return False
+    new = set_kind(text, kind)
+    st = real.stat()
+    tmp = real.with_name(f".{real.name}.kind.tmp")
+    tmp.write_bytes(new.encode("utf-8", errors="surrogateescape"))
+    os.chmod(tmp, st.st_mode & 0o7777)
+    os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))  # the page keeps its date in the lists
+    tmp.replace(real)
+    return True
+
+
 def inplace_slug(url: str) -> str:
     """The lesson slug of a marked page: a fixed prefix and a short hash of its server URL. Tutor slugs
-    start with a date, so the two never clash, and the slug is safe in #/l/<slug> and /api/lessons/<slug>."""
+    start with a date, so the two never clash, and the slug is safe in #/l/<slug> and /api/lessons/<slug>/review."""
     return INPLACE_PREFIX + hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
 
 
@@ -242,6 +262,7 @@ class Index:
         self.lock = threading.Lock()
         self.pages: list[dict] = []  # listed report pages, newest first
         self.lessons: dict[str, dict] = {}  # in-place lessons (marked pages) by slug, with their file
+        self.entries: list[dict] = []  # every listed page, marked or not, with its key, doc_id, sessions and file
         self.allowed: set[Path] = set()  # resolved paths that may be served
         self.keys: dict[str, list[str]] = {}  # review key -> URLs of the listed pages carrying it
         self.reviews: dict[str, str] = {}  # review id of a report -> its key
@@ -252,7 +273,7 @@ class Index:
 
     def scan(self) -> None:
         site = self.site
-        pages, lessons, allowed = [], {}, set()
+        pages, lessons, allowed, entries = [], {}, set(), []
         keys: dict[str, list[str]] = {}
         reviews: dict[str, str] = {}
         page_keys: dict[Path, tuple[str, str]] = {}
@@ -298,13 +319,16 @@ class Index:
                     doc_id = html.unescape(d.group(1)) if d else None
                     key = review_key(doc_id, entry["url"])
                     keys.setdefault(key, []).append(entry["url"])
+                    full = {**entry, "key": key, "doc_id": doc_id, "file": real, "slug": None,
+                            "sessions": page_sessions(text[:KIND_HEAD])}
                     if entry["kind"] == "lesson":
-                        slug = inplace_slug(entry["url"])
+                        slug = full["slug"] = inplace_slug(entry["url"])
                         lessons[slug] = {**entry, "slug": slug, "file": real, "doc_id": doc_id}
                     else:
                         pages.append(entry)
                         reviews[review_id(key)] = key
                         page_keys[real] = (key, entry["url"])
+                    entries.append(full)
         pages.sort(key=lambda d: d["mtime"], reverse=True)
         shared = {k: sorted(u) for k, u in keys.items() if len(u) > 1}
         for k in sorted(set(shared) - self.warned):
@@ -312,6 +336,7 @@ class Index:
                   f"synced: {', '.join(shared[k])}", file=sys.stderr, flush=True)
         with self.lock:
             self.pages, self.lessons, self.allowed, self.built = pages, lessons, allowed, time.time()
+            self.entries = entries
             self.keys, self.reviews, self.page_keys, self.warned = keys, reviews, page_keys, set(shared)
 
     def _allow_asset(self, target: Path | None, allowed: set, depth: int = 0) -> None:
@@ -376,9 +401,18 @@ class Index:
         return None
 
     def snapshot(self) -> dict:
-        """The report pages (marked pages are lessons and listed by /api/lessons)."""
+        """The unmarked pages (/index.json); GET /api/items lists every page."""
         with self.lock:
             return {"pages": list(self.pages), "built": self.built}
+
+    def all_entries(self) -> list[dict]:
+        """Every listed page, marked or not: the index fields plus key, doc_id, sessions, file and slug."""
+        with self.lock:
+            return list(self.entries)
+
+    def urls_of(self, key: str) -> list[str]:
+        with self.lock:
+            return list(self.keys.get(key, []))
 
     def inplace_lessons(self) -> dict[str, dict]:
         with self.lock:

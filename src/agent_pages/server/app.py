@@ -8,18 +8,19 @@
   GET  /_template/<path>         the repo template (report.css, report.js, themes, fonts, favicons); folders the
                                  config lists in template_aliases, and /lessons/_assets/, map to it too
   GET  /favicon.ico, /favicon.png, /apple-touch-icon.png   the template's icons
-  GET  /api/pages, /index.json   the indexed report pages, newest first (pages with the lesson marker are lessons)
+  GET  /api/items[?project=x]    every page in one list, newest change first: the pages under the roots and the tutor
+                                 lessons, each with id (its review id), key, url, title, path, mtime, root, area, status
+                                 (open, sent, done, archived), tags ("lesson" for marked pages and tutor lessons),
+                                 projects, topic, summary, sessions, origin ("report" or "tutor"), slug (lessons)
+  PATCH /api/items/<id>          {status?, tags?, projects?, topic?, summary?, title?}: stored in _data/items.json; the
+                                 lesson tag of a page under a root adds or removes the lesson marker in its file
+  GET  /index.json               the indexed pages without the lesson marker, newest first, for scripts
   GET  /api/pages/status?url=u   {"sha256" of the page file, "shared": other pages with its data-doc-id}: what
                                  `agent-pages open` waits for before it opens the server's copy
   GET/POST /api/reviews/<id>     answers, comments, notes of a report page (409 when its data-doc-id is shared)
-  POST /api/pages/kind           {"url", "kind": "lesson"|"report"}: add or remove the lesson marker in a page under a root
   GET  /lessons/<slug>/...       a lesson page and its figures; /lessons/_assets/... shared CSS/JS
-  GET  /api/lessons[?project=x]  all lessons with their metadata: the tutor's, and the marked pages under the roots
-                                 (in-place lessons, slug page-<hash>, "inplace": true, "url" their server path)
   GET  /api/projects             open projects and areas of the vault
   GET  /api/theme.css            the app theme's tokens, renamed --pg-*, for the app's own colours and fonts (theme.py)
-  PATCH /api/lessons/<slug>      edit title/topic/summary/projects/tags/status (JSON body)
-  POST /api/lessons/<slug>/opened
   GET  /app/                     the same app for the phone Web Clip (same build, so old home-screen icons keep working)
   GET  /api/inbox                collected links + recent jobs
   POST /api/inbox                {"text": "<one or more links>", "note": "..."}  (also from an iOS Shortcut)
@@ -41,7 +42,6 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
-import os
 import re
 import threading
 from http import HTTPStatus
@@ -53,7 +53,7 @@ from .. import REPO, TEMPLATE_DIR
 from ..config import Config, ConfigError
 from . import jobs, library
 from .theme import app_theme_css
-from .reports import ASSET_EXT, PAGE_EXT, Index, Site, hidden, inplace_slug, page_kind, set_kind
+from .reports import ASSET_EXT, PAGE_EXT, Index, Site, hidden, page_kind
 
 UI = REPO / "apps" / "ui" / "dist"  # one Vite build (base './') served at / and at /app/
 ROOT_ICONS = {"/favicon.ico", "/favicon.png", "/apple-touch-icon.png"}  # from the template, for every page
@@ -325,56 +325,22 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             raise library.MetaError(f"bad JSON: {e}") from e
 
-    def _set_kind(self, url: str, kind: str) -> dict:
-        """Add or remove the lesson marker in a page under a root (never in the lessons folder), then rescan."""
-        if kind not in ("lesson", "report"):
-            raise library.MetaError("kind must be lesson or report")
-        found = self.index.page_file(url) if url.startswith("/") else None
-        if found is None:
-            raise library.MetaError("not a page under the server's folders")
-        real, _ = found
-        if not self.site.listed(real):
-            raise library.MetaError("pages in the lessons folder or the template cannot change kind")
-        raw = real.read_bytes()
-        text = raw.decode("utf-8", errors="surrogateescape")
-        if page_kind(text) != kind:
-            try:
-                new = set_kind(text, kind)
-            except ValueError as e:
-                raise library.MetaError(str(e)) from e
-            st = real.stat()
-            tmp = real.with_name(f".{real.name}.kind.tmp")
-            tmp.write_bytes(new.encode("utf-8", errors="surrogateescape"))
-            os.chmod(tmp, st.st_mode & 0o7777)
-            os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))  # the page keeps its date in the lists
-            tmp.replace(real)
-            self.index.scan()
-        out = {"ok": True, "url": url, "kind": kind}
-        for slug, e in self.index.inplace_lessons().items():  # the index's own spelling of the URL
-            if e["file"] == real:
-                out.update(url=e["url"], slug=slug)
-        if kind == "lesson" and "slug" not in out:
-            out["slug"] = inplace_slug(url)
-        return out
-
     # ---- routes ----
     def do_GET(self):
         url = urlsplit(self.path)
         p = unquote(url.path)
-        if p == "/api/lessons":
-            items = library.list_lessons()
+        if p == "/api/items":
+            items = library.list_items()
             proj = parse_qs(url.query).get("project", [None])[0]
             if proj:
                 items = [m for m in items if proj in m["projects"]]
-            return self._json({"lessons": items})
+            return self._json({"items": items})
         if p == "/api/projects":
             return self._json({"projects": library.registry_projects()})
         if p == "/api/theme.css":
             if self.theme is None:
                 return self.send_error(HTTPStatus.NOT_FOUND)
             return self._send(app_theme_css(self.theme, self.theme_name).encode("utf-8"), "text/css; charset=utf-8")
-        if p == "/api/pages":
-            return self._json(self.index.snapshot())
         if p == "/index.json":  # report-web's page list, kept for scripts that read it
             return self._json(self.index.snapshot()["pages"])
         if p == "/api/pages/status":
@@ -454,38 +420,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         p = unquote(urlsplit(self.path).path)
-        if not p.startswith("/api/lessons/"):
+        if not p.startswith("/api/items/"):
             return self.send_error(HTTPStatus.NOT_FOUND)
         if not self._same_origin():
             return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
-        slug = p[len("/api/lessons/"):].strip("/")
+        rid = p[len("/api/items/"):].strip("/")
         try:
-            return self._json(library.update_meta(slug, self._body()))
+            return self._json(library.update_item(rid, self._body()))
         except KeyError:
-            return self._json({"error": f"no lesson {slug}"}, HTTPStatus.NOT_FOUND)
+            return self._json({"error": "no such page"}, HTTPStatus.NOT_FOUND)
+        except library.SharedKey as e:
+            return self._json({"error": str(e)}, HTTPStatus.CONFLICT)
         except library.MetaError as e:
             return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+        except OSError as e:
+            return self._json({"error": f"could not write the page: {e.strerror or e}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_POST(self):
         p = unquote(urlsplit(self.path).path)
-        if p == "/api/pages/kind":
-            if not self._same_origin():
-                return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
-            try:
-                b = self._body()
-                return self._json(self._set_kind(str(b.get("url") or ""), str(b.get("kind") or "")))
-            except library.MetaError as e:
-                return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
-            except OSError as e:
-                return self._json({"error": f"could not write the page: {e.strerror or e}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
-        if p.startswith("/api/lessons/") and p.endswith("/opened"):
-            if not self._same_origin():
-                return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
-            slug = p[len("/api/lessons/"):-len("/opened")].strip("/")
-            if library.read_meta(slug) is None:
-                return self._json({"error": f"no lesson {slug}"}, HTTPStatus.NOT_FOUND)
-            library.mark_opened(slug)
-            return self._json({"ok": True})
         if p.startswith("/api/lessons/") and p.endswith("/feedback"):
             # the lesson page's review export (answers, comments, notes) -> a revise job for the agent
             if not self._same_origin():
@@ -565,6 +517,7 @@ def build(cfg: Config, host: str | None = None, port: int | None = None) -> tupl
     index = Index(site)
     index.scan()
     library.attach_pages(index)
+    library.migrate_items()  # once: items.json from the older pages.json and lesson.json statuses
     try:
         theme = cfg.theme_css(cfg.app_theme)
     except ConfigError as e:  # the app keeps its own look

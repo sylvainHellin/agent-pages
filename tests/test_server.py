@@ -19,7 +19,7 @@ from unittest import mock
 from urllib.parse import quote
 
 from agent_pages import config
-from agent_pages.server import app, jobs, reports
+from agent_pages.server import app, jobs, library, reports
 
 SLUG = "2026-01-02_test-lesson"
 PAGE = """<!doctype html><html><head><title>Budget review</title>
@@ -174,25 +174,28 @@ class ServerRoutes(unittest.TestCase):
         # a relative link into the old template folder under a root gets the repo template
         self.assertEqual(self.get("/documents/old-template/report.css")[1], body)
 
-    def test_page_index(self):
-        status, body, _ = self.get("/api/pages")
+    def pages(self) -> list[dict]:
+        """The unmarked pages under the roots, as /index.json lists them."""
+        status, body, _ = self.get("/index.json")
         self.assertEqual(status, 200)
-        pages = {p["url"]: p for p in json.loads(body)["pages"]}
+        return json.loads(body)
+
+    def test_page_index(self):
+        pages = {p["url"]: p for p in self.pages()}
         self.assertIn("/documents/area/reports/page.html", pages)
         page = pages["/documents/area/reports/page.html"]
         self.assertEqual((page["title"], page["root"], page["area"], page["path"]),
                          ("Budget review", "documents", "area", "~/docs/area/reports/page.html"))
         self.assertEqual(pages["/code/org/repo/sync/plan.html"]["area"], "org/repo")
-        self.assertFalse(any("/lessons/" in u for u in pages))  # lessons are listed by /api/lessons
+        self.assertFalse(any("/lessons/" in u for u in pages))  # tutor lessons are listed by /api/items only
         self.assertFalse(any("old-template" in u for u in pages))
         self.assertFalse(any(".hidden" in u for u in pages))
-        mtimes = [p["mtime"] for p in json.loads(body)["pages"]]
+        mtimes = [p["mtime"] for p in self.pages()]
         self.assertEqual(mtimes, sorted(mtimes, reverse=True))
-        self.assertEqual(json.loads(self.get("/index.json")[1]), json.loads(body)["pages"])
 
     def test_lessons(self):
-        lessons = json.loads(self.get("/api/lessons")[1])["lessons"]
-        self.assertEqual([m["slug"] for m in lessons if not m.get("inplace")], [SLUG])
+        tutor = [i["slug"] for i in json.loads(self.get("/api/items")[1])["items"] if i["origin"] == "tutor"]
+        self.assertEqual(tutor, [SLUG])
         self.assertEqual(self.get(f"/lessons/{SLUG}/")[0], 200)
         self.assertEqual(self.get("/lessons/_data/state.json")[0], 404)
         self.assertEqual(json.loads(self.get("/api/projects")[1]), {"projects": []})  # no vault configured
@@ -229,8 +232,8 @@ class ServerRoutes(unittest.TestCase):
                 self.assertEqual(self.get(path)[0], 404)
 
     def test_marker_scan(self):
-        pages = {p["url"]: p for p in json.loads(self.get("/api/pages")[1])["pages"]}
-        self.assertNotIn(INPLACE_URL, pages)  # a lesson, not a report
+        pages = {p["url"]: p for p in self.pages()}
+        self.assertNotIn(INPLACE_URL, pages)  # marked: listed by /api/items with the lesson tag
         self.assertEqual(pages["/documents/area/plain.html"]["kind"], "report")
         self.assertTrue(all(p["kind"] == "report" for p in pages.values()))
         self.assertEqual(self.get(INPLACE_URL)[0], 200)  # still served at its own URL
@@ -241,24 +244,20 @@ class ServerRoutes(unittest.TestCase):
 
     def test_inplace_lesson_listed_and_edited(self):
         slug = reports.inplace_slug(INPLACE_URL)
-        lessons = {m["slug"]: m for m in json.loads(self.get("/api/lessons")[1])["lessons"]}
-        self.assertEqual(set(lessons), {SLUG, slug})
-        m = lessons[slug]
-        self.assertEqual((m["title"], m["created"], m["status"], m["url"], m["inplace"], m["doc_id"]),
-                         ("How it works", "2026-03-04", "learning", INPLACE_URL, True, "2026-03-04_how-it-works"))
+        m = self.items()[INPLACE_URL]
+        self.assertEqual((m["title"], m["created"], m["status"], m["slug"], m["doc_id"]),
+                         ("How it works", "2026-03-04", "open", slug, "2026-03-04_how-it-works"))
         self.assertEqual(m["path"], "~/docs/area/2026-03-04_how-it-works.html")
         self.assertEqual(m["counts"]["sections"], 2)
         before = (self.home / "docs" / "area" / "2026-03-04_how-it-works.html").read_text()
-        req = urllib.request.Request(f"{self.base}/api/lessons/{slug}", method="PATCH",
-                                     data=json.dumps({"status": "understood", "title": "Own title", "tags": ["x"]}).encode())
-        with urllib.request.urlopen(req) as r:
-            self.assertEqual(json.loads(r.read())["status"], "understood")
+        status, r = self.patch(m["id"], {"status": "done", "title": "Own title", "tags": ["x", "lesson"]})
+        self.assertEqual((status, r["status"]), (200, "done"))
         self.assertEqual((self.home / "docs" / "area" / "2026-03-04_how-it-works.html").read_text(), before)
-        stored = json.loads((self.cfg.lessons_dir / "_data" / "pages.json").read_text())
-        self.assertEqual(stored[INPLACE_URL], {"status": "understood", "title": "Own title", "tags": ["x"]})
-        m = {x["slug"]: x for x in json.loads(self.get("/api/lessons")[1])["lessons"]}[slug]
-        self.assertEqual((m["title"], m["status"], m["tags"]), ("Own title", "understood", ["x"]))
-        self.assertEqual(self.post(f"/api/lessons/{slug}/opened", {})[0], 200)
+        stored = self.stored()["2026-03-04_how-it-works"]
+        self.assertEqual((stored["status"], stored["title"], stored["tags"]), ("done", "Own title", ["x"]))
+        m = self.items()[INPLACE_URL]
+        self.assertEqual((m["title"], m["status"], m["tags"]), ("Own title", "done", ["x", "lesson"]))
+        self.assertEqual(library.read_meta(slug)["title"], "Own title")
         self.assertEqual(self.post(f"/api/lessons/{slug}/review", {"data": {"notes": "n"}})[0], 200)
         self.assertEqual(json.loads(self.get(f"/api/lessons/{slug}/review")[1])["data"], {"notes": "n"})
         self.assertEqual(self.get("/api/lessons/page-000000000000/review")[0], 404)
@@ -271,33 +270,6 @@ class ServerRoutes(unittest.TestCase):
         self.assertIn(str(self.home / "docs" / "area" / "2026-03-04_how-it-works.html"), line)
         self.assertNotIn("lesson.json", jobs._revise_prompt(job))
         self.assertGreater(jobs._page_mtime(slug), 0)
-
-    def test_toggle_kind(self):
-        page = self.home / "docs" / "area" / "plain.html"
-        mtime = page.stat().st_mtime_ns
-        status, r = self.post("/api/pages/kind", {"url": "/documents/area/plain.html", "kind": "lesson"})
-        self.assertEqual(status, 200)
-        self.assertEqual(r["slug"], reports.inplace_slug("/documents/area/plain.html"))
-        self.assertIn('<meta charset="utf-8">\n' + MARKER + "\n<title>", page.read_text())
-        self.assertEqual(page.stat().st_mtime_ns, mtime)
-        self.assertIn(r["slug"], [m["slug"] for m in json.loads(self.get("/api/lessons")[1])["lessons"]])
-        self.assertNotIn("/documents/area/plain.html", [p["url"] for p in json.loads(self.get("/api/pages")[1])["pages"]])
-        status, r = self.post("/api/pages/kind", {"url": "/documents/area/plain.html", "kind": "report"})
-        self.assertEqual((status, r["kind"]), (200, "report"))
-        self.assertEqual(page.read_text(), PLAIN_PAGE)
-        self.assertIn("/documents/area/plain.html", [p["url"] for p in json.loads(self.get("/api/pages")[1])["pages"]])
-
-    def test_toggle_kind_refused(self):
-        for url in ("/documents/../outside.html", "/nosuchroot/x.html", "/documents/area/reports/notes.py",
-                    "/documents/.hidden/x.html", f"/documents/lessons/{SLUG}/index.html",
-                    "/documents/old-template/report.html", "/documents/area/missing.html", "documents/area/plain.html"):
-            status, r = self.post("/api/pages/kind", {"url": url, "kind": "lesson"})
-            self.assertEqual(status, 400, url)
-        self.assertEqual(self.post("/api/pages/kind", {"url": "/documents/area/plain.html", "kind": "draft"})[0], 400)
-        self.assertEqual(self.post("/api/pages/kind", {"url": "/documents/area/plain.html", "kind": "lesson"},
-                                   {"Origin": "https://evil.example"})[0], 403)
-        self.assertNotIn(MARKER, (self.home / "docs" / "lessons" / SLUG / "index.html").read_text())
-        self.assertNotIn(MARKER, (self.home / "docs" / "area" / "plain.html").read_text())
 
     def test_cross_origin_mutation_refused(self):
         payload = json.dumps({"data": {}}).encode()
@@ -413,7 +385,7 @@ class ServerRoutes(unittest.TestCase):
             self.assertEqual(self.get(f"/documents/area/repo/{d}/f.png")[0], 404, d)
             self.assertEqual(self.get("/api/pages/status?url=" + quote(f"/documents/area/repo/{d}/x.html"))[0], 404, d)
         self.assertEqual(self.get("/api/pages/status?url=" + quote("/documents/area/repo/.sync/check.html"))[0], 200)
-        pages = {p["url"]: p for p in json.loads(self.get("/api/pages")[1])["pages"]}
+        pages = {p["url"]: p for p in self.pages()}
         self.assertEqual(pages["/documents/area/repo/.sync/check.html"]["area"], "area/repo")
         self.assertFalse(any("Private" == p["title"] for p in pages.values()))
         self.assertFalse(reports.hidden(("area", "repo", ".sync", "check.html")))
@@ -427,7 +399,7 @@ class ServerRoutes(unittest.TestCase):
         self.assertEqual(self.get("/api/pages/status?url=" + quote(url))[0], 404, url)
 
     def listed_titles(self) -> list[str]:
-        return [p["title"] for p in json.loads(self.get("/api/pages")[1])["pages"]]
+        return [p["title"] for p in self.pages()]
 
     def test_file_symlink_into_hidden_folder_refused(self):
         docs = self.home / "docs"
@@ -444,7 +416,7 @@ class ServerRoutes(unittest.TestCase):
         self.assertEqual(self.get("/documents/area/leak.png")[0], 404)
         self.assertEqual(self.get("/documents/area/uses-leak.html")[0], 200)  # the page itself is fine
         self.assertNotIn("Hidden", self.listed_titles())
-        self.assertFalse(any(".git" in p["url"] or ".hidden" in p["url"] for p in json.loads(self.get("/api/pages")[1])["pages"]))
+        self.assertFalse(any(".git" in p["url"] or ".hidden" in p["url"] for p in self.pages()))
 
     def test_directory_symlink_into_hidden_folder_refused(self):
         docs = self.home / "docs"
@@ -486,10 +458,142 @@ class ServerRoutes(unittest.TestCase):
             self.assertIn("<title>Reviewed</title>", body.decode())
             self.assertEqual(self.get("/api/pages/status?url=" + quote(url))[0], 200, url)
         self.assertEqual(self.get("/documents/area/rep/figures/chart.png")[0], 200)
-        urls = [p["url"] for p in json.loads(self.get("/api/pages")[1])["pages"]]
+        urls = [p["url"] for p in self.pages()]
         self.assertEqual(urls.count("/documents/area/reports/ided.html"), 1)
         path = self.boot("/documents/area/alias.html")["path"]
         self.assertEqual(self.get(f"/api/{path}")[0], 200)  # not 409: the link is not a second page with the id
+
+    # ---- one list: every page with one status and general tags (GET/PATCH /api/items) ----
+    def items(self) -> dict[str, dict]:
+        status, body, _ = self.get("/api/items")
+        self.assertEqual(status, 200)
+        return {i["url"]: i for i in json.loads(body)["items"]}
+
+    def patch(self, rid: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
+        req = urllib.request.Request(f"{self.base}/api/items/{rid}", method="PATCH", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json", **(headers or {})})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    def stored(self) -> dict:
+        return json.loads((self.cfg.lessons_dir / "_data" / "items.json").read_text())
+
+    def test_items_list_reports_and_tutor_lessons(self):
+        items = self.items()
+        tutor = items[f"/lessons/{SLUG}/"]
+        self.assertEqual((tutor["origin"], tutor["slug"], tutor["title"], tutor["status"], tutor["tags"], tutor["key"]),
+                         ("tutor", SLUG, "A lesson", "open", ["lesson"], SLUG))
+        self.assertEqual(tutor["id"], reports.review_id(SLUG))
+        marked = items[INPLACE_URL]
+        self.assertEqual((marked["origin"], marked["tags"], marked["key"], marked["slug"], marked["status"]),
+                         ("report", ["lesson"], "2026-03-04_how-it-works", reports.inplace_slug(INPLACE_URL), "open"))
+        plain = items["/documents/area/plain.html"]
+        self.assertEqual((plain["origin"], plain["tags"], plain["status"], plain["slug"], plain["root"], plain["area"]),
+                         ("report", [], "open", None, "documents", "area"))
+        for field in ("id", "key", "url", "title", "path", "mtime", "root", "area", "status", "tags", "projects",
+                      "topic", "summary", "sessions", "origin", "created", "changed"):
+            self.assertIn(field, plain, field)
+        self.assertIn("/code/org/repo/sync/plan.html", items)
+        changed = [i["changed"] for i in json.loads(self.get("/api/items")[1])["items"]]
+        self.assertEqual(changed, sorted(changed, reverse=True))  # newest change first
+
+    def test_old_list_routes_removed(self):
+        self.assertEqual(self.get("/api/lessons")[0], 404)
+        self.assertEqual(self.get("/api/pages")[0], 404)
+        body = json.dumps({"url": "/documents/area/plain.html", "kind": "lesson"}).encode()
+        self.assertEqual(self.get("/api/pages/kind", body, {"Content-Type": "application/json"})[0], 404)
+        self.assertEqual(self.get(f"/api/lessons/{SLUG}/opened", b"{}", {"Content-Type": "application/json"})[0], 404)
+        self.assertNotIn("lesson", reports.page_kind((self.home / "docs" / "area" / "plain.html").read_text()))
+
+    def test_migration_maps_old_statuses_and_keeps_pages_json(self):
+        data = self.cfg.lessons_dir / "_data"
+        (data / "items.json").unlink()  # written at start-up from nothing
+        old = {INPLACE_URL: {"status": "understood", "tags": ["Lesson", "Deep  Dive"], "title": "Own"},
+               "/documents/area/plain.html": {"status": "archived"},
+               "/documents/area/gone.html": {"status": "learning"}}
+        raw = json.dumps(old, indent=2).encode()
+        (data / "pages.json").write_bytes(raw)
+        (self.cfg.lessons_dir / SLUG / "lesson.json").write_text(json.dumps(
+            {"title": "A lesson", "status": "learning", "tags": ["sql"], "projects": []}))
+        built = library.migrate_items()
+        self.assertEqual(built["2026-03-04_how-it-works"]["status"], "done")  # URL -> its data-doc-id
+        self.assertEqual(built["2026-03-04_how-it-works"]["tags"], ["deep dive"])  # lesson is the file's marker
+        self.assertEqual(built["2026-03-04_how-it-works"]["title"], "Own")
+        self.assertEqual(built["/documents/area/plain.html"]["status"], "archived")
+        self.assertEqual(built["/documents/area/gone.html"]["status"], "open")  # kept, keyed by its old URL
+        self.assertEqual((built[SLUG]["status"], built[SLUG]["tags"]), ("open", ["sql"]))
+        self.assertEqual(self.stored(), built)
+        self.assertEqual((data / "pages.json").read_bytes(), raw)
+        self.assertIsNone(library.migrate_items())  # once: an existing items.json is never rebuilt
+        items = self.items()
+        self.assertEqual((items[INPLACE_URL]["status"], items[INPLACE_URL]["title"]), ("done", "Own"))
+        self.assertEqual(sorted(items[INPLACE_URL]["tags"]), ["deep dive", "lesson"])
+        self.assertEqual(items[f"/lessons/{SLUG}/"]["tags"], ["sql", "lesson"])
+        self.assertEqual((data / "pages.json").read_bytes(), raw)
+
+    def test_status_and_tags_survive_a_move(self):
+        self.write_page("area/ided.html", REVIEW_PAGE.format(id="moving"))
+        item = self.items()["/documents/area/ided.html"]
+        status, r = self.patch(item["id"], {"status": "done", "tags": ["Budget", " Q4  plan ", "budget", ""]})
+        self.assertEqual(status, 200, r)
+        self.assertEqual((r["status"], r["tags"]), ("done", ["budget", "q4 plan"]))
+        (self.home / "docs" / "area" / "ided.html").rename(self.home / "docs" / "area" / "reports" / "ided.html")
+        self.index.scan()
+        moved = self.items()["/documents/area/reports/ided.html"]
+        self.assertEqual((moved["id"], moved["status"], moved["tags"]), (item["id"], "done", ["budget", "q4 plan"]))
+        self.assertEqual(self.stored()["moving"]["status"], "done")
+
+    def test_sent_goes_back_to_open_when_the_page_changes(self):
+        self.write_page("area/ided.html", REVIEW_PAGE.format(id="sent-one"))
+        self.write_page("area/other-ided.html", REVIEW_PAGE.format(id="sent-two"))
+        page = self.home / "docs" / "area" / "ided.html"
+        library.mark_sent("sent-one", at=page.stat().st_mtime - 100)  # the agent rewrote the page after the send
+        library.mark_sent("sent-two")
+        items = self.items()
+        self.assertEqual(items["/documents/area/ided.html"]["status"], "open")
+        self.assertEqual(items["/documents/area/other-ided.html"]["status"], "sent")
+        self.assertEqual(self.stored()["sent-one"]["status"], "open")  # persisted
+        self.assertEqual(self.stored()["sent-two"]["status"], "sent")
+
+    def test_lesson_tag_toggles_the_marker(self):
+        page = self.home / "docs" / "area" / "plain.html"
+        mtime = page.stat().st_mtime_ns
+        item = self.items()["/documents/area/plain.html"]
+        status, r = self.patch(item["id"], {"tags": ["Lesson", "x"]})
+        self.assertEqual(status, 200, r)
+        self.assertIn('<meta charset="utf-8">\n' + MARKER + "\n<title>", page.read_text())
+        self.assertEqual(page.stat().st_mtime_ns, mtime)  # the page keeps its date
+        self.assertEqual((sorted(r["tags"]), r["slug"]), (["lesson", "x"], reports.inplace_slug("/documents/area/plain.html")))
+        self.assertEqual(self.stored()["/documents/area/plain.html"]["tags"], ["x"])  # lesson lives in the file
+        status, r = self.patch(item["id"], {"tags": ["x"]})
+        self.assertEqual((status, r["tags"], r["slug"]), (200, ["x"], None))
+        self.assertEqual(page.read_text(), PLAIN_PAGE)
+        self.write_page("area/nohead.html", "<title>No head</title><p>text</p>")
+        rid = self.items()["/documents/area/nohead.html"]["id"]
+        self.assertEqual(self.patch(rid, {"tags": ["lesson"]})[0], 400)
+        self.assertEqual((self.home / "docs" / "area" / "nohead.html").read_text(), "<title>No head</title><p>text</p>")
+
+    def test_tutor_lesson_keeps_lesson_tag_and_lesson_json(self):
+        before = (self.cfg.lessons_dir / SLUG / "lesson.json").read_text()
+        rid = reports.review_id(SLUG)
+        status, r = self.patch(rid, {"status": "archived", "tags": ["sql"], "topic": "Databases"})
+        self.assertEqual(status, 200, r)
+        self.assertEqual((r["status"], r["tags"], r["topic"]), ("archived", ["sql", "lesson"], "Databases"))
+        self.assertEqual((self.cfg.lessons_dir / SLUG / "lesson.json").read_text(), before)
+        self.assertEqual(self.items()[f"/lessons/{SLUG}/"]["status"], "archived")
+
+    def test_patch_refused(self):
+        rid = self.items()["/documents/area/plain.html"]["id"]
+        for body in ({"status": "learning"}, {"status": "sent"}, {"status": "later"}, {"kind": "lesson"},
+                     {"tags": "x"}, {"projects": ["no-such-project"]}, {"topic": 3}):
+            with self.subTest(body=body):
+                self.assertEqual(self.patch(rid, body)[0], 400)
+        self.assertEqual(self.patch("r0000000000000000", {"status": "done"})[0], 404)
+        self.assertEqual(self.patch(rid, {"status": "done"}, {"Origin": "https://evil.example"})[0], 403)
+        self.assertEqual(self.items()["/documents/area/plain.html"]["status"], "open")
 
     def test_app_and_health(self):
         self.assertIn(self.get("/")[0], (200, 503))  # 503 until apps/ui is built
