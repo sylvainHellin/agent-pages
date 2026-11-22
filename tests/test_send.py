@@ -341,6 +341,22 @@ class SendToAgent(unittest.TestCase):
         self.assertEqual(sorted(codes), [200] + [409] * 11)
         self.assertEqual(self.req("POST", "/api/agents/claim/no-such-send")[0], 404)
 
+    def test_a_claim_repeated_by_the_same_pi_is_answered_again(self):
+        s = self.listen(S_NEW, pid=4321)
+        self.send()
+        until(s.sends)
+        me = {"pid": 4321, "host": HOST}
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001", me)[0], 200)
+        stored = json.loads((library.DATA / "sends" / "send-0001.json").read_text())
+        self.assertEqual(stored["claimer"], me)  # from the request
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001", me)[0], 200)  # its first answer was lost
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001", {"pid": 4322, "host": HOST})[0], 409)
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001", {"pid": 4321, "host": "other"})[0], 409)
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001")[0], 409)
+        self.req("POST", "/api/agents/started/send-0001")
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001", me)[0], 409)  # started: no second delivery
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001", {"pid": "x", "host": HOST})[0], 400)
+
     def test_release_puts_a_claim_back_and_pushes_it_again(self):
         s = self.listen(S_NEW)
         self.send()

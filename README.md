@@ -129,7 +129,7 @@ A pi loads extensions when it starts, so each running pi needs `/reload` or a re
 `POST /api/send` with `{"page": <page id>, "id": <send id from the app>, "markdown": <the export>}` stores the send and answers at once with its route.
 The app posts the export the page's own Export button builds (`bn.review.markdown()`), up to 600 kB, since the server cannot rebuild it: it depends on how each comment anchors in the reader's browser.
 
-- `live`: a pi holds one of the sessions; it gets the send, fetches the export, claims it and queues it as a follow-up.
+- `live`: a pi holds one of the sessions; it gets the send, fetches the export, claims it and queues it as a follow-up; the claim names the pi's pid and host, so a retry whose first answer was lost is answered again for that same pi only.
 - `pending`: a session's pi is registered but not connected (a live process on this machine, or another machine's pi that never closed its registration), a Paseo agent holding the session is running, or the server started less than a minute ago; the send goes to that pi when it connects, and one waiting for the start is routed again after that minute.
 - `paseo`: an idle Paseo agent holds the session; the server sends the export to it with `paseo send`.
 - `resuming`: no agent holds the session but its pi session file is on this machine; the server imports it into Paseo with `--cwd <pages_dir>`, so the agent shows in the Paseo workspace `pages` and works in the session's own folder, then sends the export.

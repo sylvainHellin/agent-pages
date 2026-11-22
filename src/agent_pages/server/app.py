@@ -41,7 +41,7 @@
                                  answers at once with the route (live, pending, paseo, resuming, failed, none, new)
   GET  /api/sends?page=<id>      the page's sends, newest first; GET /api/sends/<id>/markdown: a send's export
   GET  /api/agents/listen?session&pid&host&harness&where   a pi's SSE stream (agent-pages-inbox extension)
-  POST /api/agents/claim/<id>, /release/<id>, /started/<id>; DELETE /api/agents/<session>   the same pi (agents.py)
+  POST /api/agents/claim/<id> {pid, host}, /release/<id>, /started/<id>; DELETE /api/agents/<session>   the same pi
 
 Every URL the UI uses is relative, so the app works at the server root and behind a path prefix.
 The settings come from the agent-pages config (host, port, roots, lessons_dir, vault, template_aliases).
@@ -481,6 +481,8 @@ class Handler(BaseHTTPRequestHandler):
             fn = {"claim": agents.claim, "release": agents.release, "started": agents.started}.get(action)
             if fn is None or not sid or "/" in sid:
                 return self.send_error(HTTPStatus.NOT_FOUND)
+            if fn is agents.claim:
+                return self._json(agents.claim(sid, self._body()))  # {pid, host} of the claiming pi
             return self._json(fn(sid))
         except KeyError:
             return self._json({"error": "no such page" if p == "/api/send" else "no such send"}, HTTPStatus.NOT_FOUND)

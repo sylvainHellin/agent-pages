@@ -10,8 +10,9 @@ dies without one leaves it behind.
 The sends: POST /api/send {page, id, markdown[, new]} stores <data>/sends/<id>.json (the id is the client's, so a
 repeat is the same send) and the export beside it as <id>.md, then picks a route and answers at once:
   live      a listener holds one of the page's sessions (newest first): the event `send` {id, markdown_url} goes to
-            it, the extension fetches the markdown, claims the send (POST /api/agents/claim/<id>, 200 exactly once),
-            queues it as a follow-up and reports POST /api/agents/started/<id> when it starts
+            it, the extension fetches the markdown, claims the send (POST /api/agents/claim/<id> {pid, host}: 200
+            once, and again only to that same pi retrying a lost answer), queues it as a follow-up and reports
+            POST /api/agents/started/<id> when it starts
   pending   a session is registered but not connected (a live local pid, or another host's registration never
             closed), a Paseo agent holding the session is running, or the server started less than GRACE_S ago;
             the send waits for that session's stream and is pushed when it connects
@@ -27,8 +28,10 @@ a page's sends and GET /api/sends/<id>/markdown serves the export.
 
 The page is listed as sent (library.mark_sent) when the delivery starts: POST /api/agents/started for a pi's
 send, the end of the Paseo command for the server's own; it reads as open once the agent revises its file. A claim,
-a release or a claim taken back changes nothing on the page. Commands run as argument lists with no shell, never with anything from the
-page's HTML besides session ids that are UUIDs and the review id.
+a release or a claim taken back changes nothing on the page.
+
+Commands run as argument lists with no shell, never with anything from the page's HTML besides session ids that
+are UUIDs and the review id.
 """
 
 from __future__ import annotations
@@ -375,16 +378,34 @@ def _claimer(session: str | None) -> dict | None:
     return {"pid": reg.get("pid"), "host": reg.get("host")} if reg else None
 
 
-def claim(send_id: str) -> dict:
-    """POST /api/agents/claim/<id>: 200 exactly once while the send is pending. KeyError: no such send;
-    LookupError: not pending."""
+def _claimant(body) -> dict | None:
+    """The pi a claim request names in its body {pid, host}; None when it names none."""
+    if not isinstance(body, dict) or ("pid" not in body and "host" not in body):
+        return None
+    pid, host = body.get("pid"), body.get("host")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise SendError("pid must be a process id")
+    if not isinstance(host, str) or not HOST_RE.match(host):
+        raise SendError("host must be a host name")
+    return {"pid": pid, "host": host}
+
+
+def claim(send_id: str, body=None) -> dict:
+    """POST /api/agents/claim/<id> with {pid, host}: 200 once while the send is pending, and again to the same pi
+    while its claim has not started (it retries a claim whose answer it lost). KeyError: no such send;
+    LookupError: not pending; SendError: a bad body."""
+    who = _claimant(body)
     with _lock:
         rec = _load(send_id)
         if rec is None:
             raise KeyError(send_id)
+        held = rec.get("claimer") or {}
+        if (who and rec.get("state") == "claimed" and rec.get("route") not in SERVER_ROUTES
+                and (held.get("pid"), held.get("host")) == (who["pid"], who["host"])):
+            return summary(rec)
         if rec.get("state") != "pending" or not rec.get("session"):
             raise LookupError(f"send {send_id} is {rec.get('state')}")
-        rec.update(state="claimed", claimed_at=time.time(), claimer=_claimer(rec["session"]))
+        rec.update(state="claimed", claimed_at=time.time(), claimer=who or _claimer(rec["session"]))
         _save(rec)
     return summary(rec)
 
