@@ -53,7 +53,7 @@ iOS `gesture*` events and Safari's own zoom cannot be produced headless.
 | 28 | Cross-lesson links switch the reader | ✓ | ✓ | link inside the MuJoCo lesson → URDF lesson |
 | 29 | Lesson written after the list loaded | ✓ | ✓ | new folder → opens; unknown slug → "Not found" |
 | 30 | Review bar counts / hint **R** | ✓ | ✓ | "2 answers · 1 comment ready to send"; 2026-11-06 D: hint, then "notes ready to send" |
-| 31 | Send to tutor (feedback POST, `sent()`) **R** | ✓ | ✓ | revise jobs created from each size; 2026-11-06 D: revise job created |
+| 31 | Send to agent from the page (Send to tutor removed) | ✓ | ✓ | 2026-11-22 against a real pi with the agent-pages-inbox extension: D 1440 px top bar Send in a tab, in the page reader frame and in the lesson reader, P 390 px panel Send to agent; each "Queued in herdr t5w" then "Sent", the pi's session got every export; no agent: "No agent has this session" with Start a new agent (not clicked); offline: "Offline: export copied" |
 | 32 | Waiting / revising / attention state **R** | ✓ | ✓ | queued (lesson agent busy), running, attention (fake job); 2026-11-06 D: "Waiting for the tutor…" |
 | 33 | Auto reload when the revise job is done **R** | ✓ | ✓ | iframe reloaded, "Page revised" (2026-11-06 D: job reported done with curl) |
 | 34 | Review sync between devices | ✓ | ✓ | D answer → P; P answer → D after `localStorage.clear()`; P answer while D open → D reloads on focus |
@@ -141,7 +141,7 @@ plus a "Jobs" tab.
 28. Cross-lesson links inside a page switch the app's reader (`report.js` sets `#/l/<slug>` on the parent). **W+M**
 29. A lesson made after the list loaded is found (reload once before "not found"). **M**
 30. Review bar under the page: counts of answers / comments / notes ready, hint when empty, hidden when the page has no review layer. **W+M**
-31. Send to tutor → `POST api/lessons/<slug>/feedback` with the page's export, `bn.review.sent()`, toast. **W+M**
+31. ~~Send to tutor~~: removed, since it queued a tuios revise job; the page's own Send to agent (top bar and comments panel, `template/agent-send.js`) sends its export to the agent session that wrote it, in both readers too, and the review bar points to the panel ("2 answers ready to send from the page's comments panel"). **new**
 32. Waiting / revising / attention state while a revise job for the lesson is active. **W+M**
 33. Auto reload of the page when the revise job finishes ("Page revised"); failure toast. **W+M**
 34. Review sync (`review-sync.js`): pull before the page loads, push every 1.5 s while reading, on leaving the lesson and when hidden; on return to the front pull and reload if changed. **W+M**

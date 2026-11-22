@@ -128,19 +128,20 @@ On every session start it holds one stream, `GET /api/agents/listen`, naming its
 The server keeps one stream per session, sends a heartbeat every 20 s, drops a stream the moment its socket closes, and tells an older stream of the same session `superseded` when a new pi takes it.
 A pi loads extensions when it starts, so each running pi needs `/reload` or a restart once after the extension is installed.
 
-`POST /api/send` with `{"page": <page id>, "id": <send id from the app>, "markdown": <the export>}` stores the send and answers at once with its route.
-The app posts the export the page's own Export button builds (`bn.review.markdown()`), up to 600 kB, since the server cannot rebuild it: it depends on how each comment anchors in the reader's browser.
+`POST /api/send` with `{"page": <page id>, "id": <send id from the page>, "markdown": <the export>}` stores the send and answers at once with its route.
+The page's Send to agent button (`template/agent-send.js`, next to Export) posts the export its Export button builds (`bn.review.markdown()`), up to 600 kB, since the server cannot rebuild it: it depends on how each comment anchors in the reader's browser.
+The server adds that script and the page's id to every page it serves with the review layer, unless the page's `data-doc-id` is shared; how the button shows each route is in `template/README.md`, "Send to agent".
 
 - `live`: a pi holds one of the sessions; it gets the send, fetches the export, claims it and queues it as a follow-up; the claim names the pi's pid and host, so a retry whose first answer was lost is answered again for that same pi only.
 - `pending`: a session's pi is registered but not connected (a live process on this machine, or another machine's pi that never closed its registration), a Paseo agent holding the session is running, or the server started less than a minute ago; the send goes to that pi when it connects, and one waiting for the start is routed again after that minute.
 - `paseo`: an idle Paseo agent holds the session; the server sends the export to it with `paseo send`.
 - `resuming`: no agent holds the session but its pi session file is on this machine; the server imports it into Paseo with `--cwd <pages_dir>`, so the agent shows in the Paseo workspace `pages` and works in the session's own folder, then sends the export.
 - `failed`: the session file changed in the last 2 minutes (a pi without the extension may have it open), or the session's working folder is gone; the Export button still works.
-- `none`: nothing holds or stores the sessions; the app then offers Start a new agent, `POST /api/send` with `"new": true`, which starts a Paseo agent in the page's folder on the export and adds its session to the page.
+- `none`: nothing holds or stores the sessions; the page then offers Start a new agent, `POST /api/send` with `"new": true`, which starts a Paseo agent in the page's folder on the export and adds its session to the page.
 
 The page is listed as Sent when the delivery starts (the pi reports the queued message starting, or the server's Paseo command succeeded), so it reads as Open again once the agent revises the file; a claim that is released or taken back leaves the page as it was.
 A claimed send that never started goes back to pending when its pi releases it, or when the session registers again and the claiming pi is gone: a dead process on the server's machine, or a new pi on the claimer's own machine (the server cannot look into another machine's processes).
-`GET /api/sends?page=<page id>` lists a page's sends with their state: `pending`, `claimed`, `started`, `failed`, `cancelled` when a newer send of the page replaced one still pending, or `none` when a send that waited out the server's first minute found no agent, so the app offers Start a new agent.
+`GET /api/sends?page=<page id>` lists a page's sends with their state: `pending`, `claimed`, `started`, `failed`, `cancelled` when a newer send of the page replaced one still pending, or `none` when a send that waited out the server's first minute found no agent, so the page offers Start a new agent.
 The Paseo command lines are the config's `[harness.paseo]` keys; each runs as an argument list with no shell, and only UUIDs, the hex page id and paths the server chose fill their placeholders.
 
 ## Agent skills

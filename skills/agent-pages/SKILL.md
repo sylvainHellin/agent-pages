@@ -56,6 +56,7 @@ Read `figures.md` next to this file before adding one: existing visuals first, t
 1. The reader comments on text or elements, answers the cards and writes general notes, then pastes the Markdown export into the chat.
    Each comment quotes its passage or names its element by CSS selector; each answer carries its card's `data-id`.
    The export's line "Written in agent sessions: ..." names the sessions that wrote the page.
+   On a page `agent-pages serve` serves, the reader can instead press Send to agent, which delivers the same export to the session that wrote the page as a follow-up message; a pasted export is handled the same way.
 2. When those sessions are not the current one, read what they discussed in the harness's session history first, then address every comment and answer; an ambiguous one gets a question back, not a guess.
 3. Revise the same file in place: rewrite what the comments point at, remove the answered cards, add cards for what is still open, run `agent-pages session <path> --add` so the page lists this session too, and hand the path back.
 4. Leave the stored comments alone: on its next load the revised page clears what the export carried and marks the blocks that changed.

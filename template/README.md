@@ -109,16 +109,34 @@ Choice questions also get an optional note field.
 3. The reader presses Cmd+Shift+X, the clipboard button in the top bar or Export Markdown in the panel and pastes the result into the chat.
    Cmd+Shift+X works from anywhere on the page, a text box included, and behaves like the top bar button.
    When the clipboard is blocked, the top bar button downloads the file instead, and the panel offers Download .md.
+   On a page `agent-pages serve` serves, Send to agent, next to Export in the top bar and in the panel, hands the same export straight to the agent session that wrote the page (see Send to agent below), so nothing needs pasting.
 4. The agent revises the same file in place, removes the question cards that are answered, and hands the path back.
    When the export names sessions other than its own, the agent reads what they discussed in its harness's session history before it answers, and adds its own id with `agent-pages session <path> --add`.
 5. On the next load the page sees that its content changed and clears what the last export carried, so no manual cleanup is needed (see Review rounds below).
    The bin button in the top bar or Clear all in the panel still wipes everything at any time, after a confirmation dialog.
 6. The revised page marks what changed since the version the reader exported, and folds the sections already read that did not change (see Changes since the last read below).
 
+### Send to agent
+
+The button shows only on a page `agent-pages serve` serves, in a tab of its own, in the app's page reader and in its lesson reader.
+The server adds `agent-send.js` and the page's id to the page's head; a page opened as a file, or one whose `data-doc-id` another page also uses, has no Send button.
+It also needs a target: an agent session in the page's `agent-pages-session` line, or a server that can start a new agent (Paseo on its `PATH`).
+In the top bar it is a paper plane with the label Send, hidden below 560 px like Export; the panel has Send to agent next to Export Markdown at every width.
+
+A click posts the export Export Markdown builds to `POST /api/send` with the page's id and a send id made in the browser, and answers at once; the server's routes are in the main README, "Send to agent".
+A status line follows: under the top bar (with a close button; a Sent line there goes after eight seconds) and under the panel's buttons.
+It reads Sending, then one of Queued in herdr t17 (a pi with the extension has it), Waiting for pi on sylvain-mac (that pi is away), Resuming in Paseo pages, Sending to Paseo agent 1a2b3c4d, Sent once the agent starts on it, Failed: and the server's reason, or Replaced by a newer send.
+While a send is not final, the page asks `GET /api/sends?page=<id>` every three seconds, pauses while the tab is hidden and asks again when it comes back; the buttons wait meanwhile.
+When no agent holds the page's sessions the line reads No agent has this session, with a second button, Start a new agent, which posts the export again with `"new": true` (the line points to Export instead when the server cannot start one).
+Without a network the export goes to the clipboard as with Export, and the line reads Offline: export copied.
+A click after that sends again under the same send id, so the server stores the send once even when only its answer was lost; a click after a final state is a new send.
+The send waiting for its final state sits in localStorage under `bn-send:<page id>`, so a reload picks its status up again.
+An accepted send records the export snapshot as Export does, so the revised page clears what it carried.
+
 ### Review rounds
 
 At load, `report.js` hashes the source of `<main>` before decorating it; that hash is the page revision.
-A successful export (clipboard, top-bar download fallback or Download .md) records a snapshot of what it carried: each comment's id and text, each answer's choice, text and note, and the general notes.
+A successful export (clipboard, top-bar download fallback, Download .md or an accepted Send to agent) records a snapshot of what it carried: each comment's id and text, each answer's choice, text and note, and the general notes.
 When the page loads with a revision different from the one of that export, it removes every comment and answer still identical to the snapshot, and the exported notes when the current notes start with them.
 Anything added or edited after the export stays, so feedback written while the agent works is never lost; nothing is cleared when there was no export, or when the content did not change.
 A toast names what was cleared ("Page revised: cleared 2 comments and 1 answer from your last export."), shown for eight seconds.
@@ -143,9 +161,9 @@ Clicking a highlight, a badge or an entry in the panel reopens it for editing or
 The panel lists, top to bottom, the general notes, the comments in document order and the answers.
 Its header counts both, as in "Comments 2 · Answers 1".
 The panel button in the top bar carries only symbols: the comment count, and on a page with question cards a second counter, answered of total ("0/2").
-Next to it, two symbol-only buttons repeat Export Markdown (clipboard) and Clear all (bin, red on hover), so a round trip needs no trip into the panel.
+Next to it, two symbol-only buttons repeat Export Markdown (clipboard) and Clear all (bin, red on hover), so a round trip needs no trip into the panel; Send sits between them on a page the server serves.
 With the panel closed, their result ("Copied to clipboard as Markdown.", "Nothing to export yet.") shows for three seconds in a small toast under the bar.
-Below 560 px both hide, since the panel covers the screen there anyway, and below 420 px the Vim button hides too.
+Below 560 px all three hide, since the panel covers the screen there anyway, and below 420 px the Vim button hides too.
 Cards and export headings name the section only when it is a heading other than the h1, so a comment near the page title carries no section label.
 The Answers section has one card per question that carries a choice, a text or a note: the question number, its section, the question text, the chosen options and the note.
 A card with a note but no choice is marked "no choice yet".
