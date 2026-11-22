@@ -2,11 +2,13 @@
    Every page has one status (open, sent, done, archived) and tags; the status chips (Open by default, Sent, Done,
    Archived, All) and the tag chips filter the list, the search matches title, topic, summary, path, projects and tags.
    The list is newest change first under day and month headings; Month shows the same pages on the month board
-   (components/board.tsx), whose month is kept per list in the store, so it survives opening a page and coming back. */
+   (components/board.tsx), whose month is kept per list in the store, so it survives opening a page and coming back.
+   Select puts a checkbox on every row and a bar under the list: Select all shown, then Open, Done or Archived for the
+   selection in one PATCH api/items (pages whose data-doc-id is shared cannot be picked: their status cannot be set). */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowUpRightIcon, CalendarDaysIcon, CopyIcon, ListIcon, XIcon } from 'lucide-react'
+import { ArrowUpRightIcon, CalendarDaysIcon, CopyIcon, ListChecksIcon, ListIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { STATUSES, registryUrl, type Item } from '@/lib/api'
+import { SETTABLE, STATUSES, registryUrl, type Item, type Status } from '@/lib/api'
 import { areaBelow, inArea } from '@/lib/areas'
 import { addMonths, MONTHS, plural, WDAYS } from '@/lib/format'
 import { copyText, useIsDesktop } from '@/lib/hooks'
@@ -14,6 +16,7 @@ import { hereUrl, itemHash, projectHash } from '@/lib/router'
 import { filterItems, matchesSearch, useStore, type StatusFilter } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Empty, ProjectDot, STATUS_LABEL, StatusMark } from '@/components/bits'
 import { defaultMonth, itemColor, Legend, MonthGrid, MonthNav, MonthSummary, MonthTitle, PhoneMonth, SearchField } from '@/components/board'
@@ -217,19 +220,24 @@ function whenOf(d: Date, bucket: string): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`
 }
 
-function Row({ item: i, area, when, prefer }: { item: Item; area: string; when: string; prefer?: string }) {
+/** The rows' checkboxes while the list is in select mode. */
+interface Picking {
+  has(id: string): boolean
+  toggle(id: string): void
+}
+
+/** Whether a page can join a selection: a page whose data-doc-id other pages share has no status of its own. */
+const pickable = (i: Item) => !i.shared?.length
+
+function Row({ item: i, area, when, prefer, picking }: { item: Item; area: string; when: string; prefer?: string; picking?: Picking }) {
   const sub = areaBelow(i.area, area)
   const t = new Date(i.changed * 1000)
   const facts = [sub, i.topic].filter(Boolean).join(' · ')
-  return (
-    <li>
-      <a
-        href={itemHash(i)}
-        title={i.path}
-        className="group flex items-baseline gap-3 rounded-lg px-3 py-2 transition-colors duration-150 hover:bg-foreground/[0.035] active:bg-foreground/[0.05]"
-      >
-        <StatusMark status={i.status} color={itemColor(i, prefer)} className="-translate-y-px" />
-        <span className="min-w-0 flex-1">
+  const rowClass = 'group flex items-baseline gap-3 rounded-lg px-3 py-2 transition-colors duration-150 hover:bg-foreground/[0.035] active:bg-foreground/[0.05]'
+  const content = (
+    <>
+      <StatusMark status={i.status} color={itemColor(i, prefer)} className="-translate-y-px" />
+      <span className="min-w-0 flex-1">
           <span className={cn('block text-[14px] leading-snug font-medium group-hover:text-primary', i.status === 'open' ? 'text-foreground' : 'text-foreground/70')}>{i.title}</span>
           {facts || i.projects.length || i.tags.length ? (
             <span className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] leading-snug text-muted-foreground">
@@ -248,15 +256,36 @@ function Row({ item: i, area, when, prefer }: { item: Item; area: string; when: 
             </span>
           ) : null}
         </span>
-        <span className="shrink-0 text-xs whitespace-nowrap text-faint tabular-nums" title={`${STATUS_LABEL[i.status]} · changed ${t.toLocaleString()}`}>
-          {when}
-        </span>
+      <span className="shrink-0 text-xs whitespace-nowrap text-faint tabular-nums" title={`${STATUS_LABEL[i.status]} · changed ${t.toLocaleString()}`}>
+        {when}
+      </span>
+    </>
+  )
+  if (picking) {
+    const can = pickable(i)
+    const on = can && picking.has(i.id)
+    return (
+      <li>
+        <label
+          title={can ? i.path : 'Other pages share its data-doc-id: open it to see which'}
+          className={cn(rowClass, 'cursor-pointer select-none', on && 'bg-primary/[0.06] hover:bg-primary/[0.08]', !can && 'cursor-not-allowed opacity-55')}
+        >
+          <Checkbox checked={on} disabled={!can} onCheckedChange={() => picking.toggle(i.id)} aria-label={`Select ${i.title}`} className="translate-y-[3px]" />
+          {content}
+        </label>
+      </li>
+    )
+  }
+  return (
+    <li>
+      <a href={itemHash(i)} title={i.path} className={rowClass}>
+        {content}
       </a>
     </li>
   )
 }
 
-function Rows({ items, area, prefer }: { items: Item[]; area: string; prefer?: string }) {
+function Rows({ items, area, prefer, picking }: { items: Item[]; area: string; prefer?: string; picking?: Picking }) {
   /* consecutive runs of the same heading: the list comes newest change first */
   const now = new Date()
   const buckets: { label: string; rows: { item: Item; when: string }[] }[] = []
@@ -276,7 +305,7 @@ function Rows({ items, area, prefer }: { items: Item[]; area: string; prefer?: s
           </h2>
           <ul className="-mx-3 flex flex-col">
             {b.rows.map(({ item, when }) => (
-              <Row key={item.url} item={item} area={area} when={when} prefer={prefer} />
+              <Row key={item.url} item={item} area={area} when={when} prefer={prefer} picking={picking} />
             ))}
           </ul>
         </section>
@@ -338,6 +367,54 @@ function MonthBoard({ items, boardKey, prefer, withProjects }: { items: Item[]; 
   )
 }
 
+/** Under the list in select mode: how many are picked, Select all shown, and the status for the selection. */
+function SelectBar({ items, sel, setSel, onClose }: { items: Item[]; sel: string[]; setSel: (ids: string[]) => void; onClose: () => void }) {
+  const patchMany = useStore((s) => s.patchMany)
+  const [busy, setBusy] = useState(false)
+  const can = items.filter(pickable)
+  const picked = can.filter((i) => sel.includes(i.id))
+  const all = can.length > 0 && picked.length === can.length
+  const apply = async (s: Status) => {
+    if (!picked.length || busy) return
+    setBusy(true)
+    try {
+      await patchMany(picked.map((i) => i.id), s)
+      toast.success(`${plural(picked.length, 'page')} marked ${STATUS_LABEL[s]}`)
+      setSel([])
+    } catch {
+      /* toast shown by the store */
+    }
+    setBusy(false)
+  }
+  return (
+    <div className="fixed inset-x-0 bottom-[calc(var(--tabbar-h)+var(--safe-bottom))] z-20 px-3 pb-2 desk:bottom-0 desk:left-[220px] desk:px-6 desk:pb-4">
+      <div role="toolbar" aria-label="Selection" className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card/95 px-3 py-2 shadow-lg backdrop-blur">
+        <span className="text-[12.5px] font-medium tabular-nums">{picked.length} selected</span>
+        <button
+          type="button"
+          disabled={!can.length}
+          onClick={() => setSel(all ? [] : can.map((i) => i.id))}
+          className="text-[12.5px] text-muted-foreground underline decoration-border underline-offset-[3px] hover:text-foreground disabled:opacity-50"
+        >
+          {all ? 'Select none' : `Select all shown (${can.length})`}
+        </button>
+        <span className="flex-1" />
+        <Button variant="ghost" size="icon" className="size-7 desk:hidden" onClick={onClose} aria-label="Leave select mode">
+          <XIcon />
+        </Button>
+        <div className="grid grid-cols-3 gap-1.5 max-desk:w-full">
+          {SETTABLE.map((s) => (
+            <Button key={s} variant="outline" size="sm" disabled={!picked.length || busy} onClick={() => apply(s)}>
+              <StatusMark status={s} />
+              {STATUS_LABEL[s]}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ListView({ scope }: { scope: ListScope }) {
   const desk = useIsDesktop()
   const pages = useStore((s) => s.pages)
@@ -357,6 +434,25 @@ export function ListView({ scope }: { scope: ListScope }) {
   const shown = filterItems(tagged, status, [])
   const week = base.filter((i) => Date.now() / 1000 - i.changed < 7 * DAY).length
   const month = mode === 'month'
+  const [selecting, setSelecting] = useState(false)
+  const [sel, setSel] = useState<string[]>([])
+  const picking = selecting && !month
+  const stopPicking = () => {
+    setSelecting(false)
+    setSel([])
+  }
+
+  // Escape leaves select mode (not while typing or with a dialog or menu open)
+  useEffect(() => {
+    if (!picking) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || typing(e.target) || document.querySelector('[role="dialog"],[role="menu"]')) return
+      setSelecting(false)
+      setSel([])
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [picking])
 
   const body = !loaded ? (
     <div className="mt-4 flex flex-col gap-2">
@@ -375,11 +471,16 @@ export function ListView({ scope }: { scope: ListScope }) {
       {q.trim() || tags.length ? 'Try other words or tags, or another status.' : status === 'all' ? 'No page in this list yet.' : 'Pick another status above, or All.'}
     </Empty>
   ) : (
-    <Rows items={shown} area={area} prefer={pid} />
+    <Rows
+      items={shown}
+      area={area}
+      prefer={pid}
+      picking={picking ? { has: (id) => sel.includes(id), toggle: (id) => setSel(sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]) } : undefined}
+    />
   )
 
   return (
-    <div className={cn('mx-auto flex w-full flex-col px-4 pt-3 pb-12 desk:px-6', month && desk ? 'h-dvh min-h-[38rem] max-w-none pb-3' : 'max-w-3xl desk:pt-6')}>
+    <div className={cn('mx-auto flex w-full flex-col px-4 pt-3 pb-12 desk:px-6', month && desk ? 'h-dvh min-h-[38rem] max-w-none pb-3' : 'max-w-3xl desk:pt-6', picking && 'pb-36 desk:pb-24')}>
       <ScopeHeader scope={scope} count={base.length} />
       <div className="flex shrink-0 flex-col gap-2.5 pt-2 pb-1">
         <div className="flex items-center gap-2">
@@ -388,12 +489,26 @@ export function ListView({ scope }: { scope: ListScope }) {
           <span className="text-xs text-faint tabular-nums max-desk:hidden">
             {plural(base.length, 'page')}, {week} changed this week
           </span>
+          {month ? null : (
+            <Button
+              variant={picking ? 'secondary' : 'ghost'}
+              size="sm"
+              aria-pressed={picking}
+              title={picking ? 'Leave select mode' : 'Pick pages and set their status at once'}
+              onClick={() => (picking ? stopPicking() : setSelecting(true))}
+              className="max-desk:px-2"
+            >
+              {picking ? <XIcon /> : <ListChecksIcon />}
+              <span className="max-desk:sr-only">{picking ? 'Cancel' : 'Select'}</span>
+            </Button>
+          )}
           <ModeToggle />
         </div>
         <StatusChips items={tagged} />
         <TagChips items={filterItems(searched, status, [])} />
       </div>
       {body}
+      {picking && loaded && pages.length ? <SelectBar items={shown} sel={sel} setSel={setSel} onClose={stopPicking} /> : null}
     </div>
   )
 }

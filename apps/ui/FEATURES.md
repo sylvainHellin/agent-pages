@@ -94,6 +94,7 @@ iOS `gesture*` events and Safari's own zoom cannot be produced headless.
 | 69 | Tag chips filter the list **L** | ✓ | ✓ | #lesson picked: 16 pages with All, "Clear tags" |
 | 70 | Tag editor, the lesson tag moves the page between readers **L** | ✓ | ✓s | report page: Done, tags "School, Family " → #school #family, Tag as lesson → `#/l/page-…` and the marker in the file; Remove tag lesson in the lesson reader → `#/r/…`, marker gone |
 | 71 | Old links still open the page **L** | ✓ | ✓s | `#/r/<url>` of a lesson page goes on to `#/l/<slug>`; `#/reports` is the list |
+| 72 | Select mode: checkboxes, Select all shown, Open / Done / Archived for the selection **L** | ✓ | ✓ | 2026-11-22 on a fresh copy (149 open): 3 rows → Done (Open 146, Done 5), Select all shown (145, 4 pages with a shared data-doc-id cannot be picked), Select none, Esc leaves; P: bar above the tab bar, a tap on a row toggles it, 2 → Archived, × leaves |
 
 Not ported: nothing. Changed on purpose: the phone's one-tap Learning/Understood pill is now the same
 status menu as the desktop; the phone's "Make a lesson" bottom sheet is the New page itself
@@ -182,3 +183,4 @@ plus a "Jobs" tab.
 69. Tag chips under the status chips: the 12 most used tags of the pages in view (+N more), several can be picked (a page must carry them all), Clear tags. **new**
 70. Tags on every page, in both readers (tags button with the count; dialog on desktop, sheet on phone): × removes one, the field adds one or several (Enter, comma), suggestions from the list's tags, lower case. The lesson tag of a page under a root writes or removes the lesson marker in the page file and moves the page to the other reader; a tutor lesson keeps its lesson tag. **new**
 71. Old links keep working: `#/l/<slug>` opens a lesson, `#/r/<url>` of a page with the lesson tag goes on to `#/l/<slug>`, `#/reports` is the list and `#/reports?area=<a>` one area. **new**
+72. Select mode for clearing a backlog: Select (beside List / Month, list view only) puts a checkbox on every row, a tap on a row toggles it; a bar under the list (above the tab bar on the phone) shows how many are selected, Select all shown / Select none, and Open, Done, Archived, which set the status of the selected pages in one `PATCH api/items {ids, status}` (all or none); a page whose data-doc-id other pages share cannot be picked. Cancel, × or Esc leaves. **new**

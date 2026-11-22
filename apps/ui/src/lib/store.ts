@@ -50,6 +50,8 @@ interface State {
   refreshAll(): Promise<void>
   /** PATCH api/items/<id>; a lesson whose lesson tag is taken away goes on to the page reader when it is the one open. */
   patchItem(id: string, body: ItemPatch): Promise<Item>
+  /** PATCH api/items {ids, status}: one status for several pages, all or none. */
+  patchMany(ids: string[], status: Status): Promise<Item[]>
   linkProject(id: string, project: string): Promise<void>
   unlinkProject(id: string, project: string): Promise<void>
   addLinks(text: string, note: string): Promise<InboxItem[]>
@@ -162,6 +164,18 @@ export const useStore = create<State>()((set, get) => {
           setTimeout(() => navigate(pageHash(next.url), { replace: true }), 250)
         }
         return next
+      } catch (e) {
+        toast.error((e as Error).message)
+        throw e
+      }
+    },
+
+    async patchMany(ids, status) {
+      try {
+        const r = await api<{ items: Item[] }>('items', { method: 'PATCH', body: { ids, status } })
+        const next = new Map(r.items.map((m) => [m.id, withUnknown(m)]))
+        set({ pages: get().pages.map((i) => next.get(i.id) || i) })
+        return r.items
       } catch (e) {
         toast.error((e as Error).message)
         throw e

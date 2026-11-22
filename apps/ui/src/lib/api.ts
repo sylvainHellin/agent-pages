@@ -13,7 +13,7 @@ export const LESSON_TAG = 'lesson'
 /** One page of the one list (GET api/items): a page under the server's roots or a tutor lesson. */
 export interface Item {
   id: string // its review id: PATCH api/items/<id>
-  key: string // what its status and tags are stored under: data-doc-id, else the URL; a tutor lesson's slug
+  key: string // what its status and tags are stored under: data-doc-id, else the URL; tutor:<slug> for a tutor lesson
   url: string // server path: /documents/loc/x.html, /lessons/<slug>/ for a tutor lesson
   title: string
   path: string // ~/Documents/loc/x.html
