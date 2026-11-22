@@ -3,7 +3,7 @@
    The page (lessons/_assets/report.js) keeps answers, comments and notes in localStorage and exposes
    window.bn.review. This view
      - pulls the review state of other devices before the page loads and pushes it while reading (sync.ts),
-     - counts what is ready and sends it to the tutor (POST api/lessons/<slug>/feedback = a revise job),
+     - counts what is ready to send (the page's own Send to agent button, template/agent-send.js, sends it),
      - shows the revise job's state and reloads the page when the job is done.
    Links between lessons inside the page set this window's hash (#/l/<slug>), so the same iframe switches
    lesson with location.replace (no extra history entries).
@@ -26,7 +26,6 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
-  SendIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { folderOf, isActive, isLesson, lessonDocKey, pageUrl, type Lesson } from '@/lib/api'
@@ -46,8 +45,6 @@ import { borrowPageTokens } from '@/lib/theme'
 import { NotFound } from '@/components/lessons'
 
 interface Review {
-  markdown(): string
-  sent(): void
   counts(): { answers: number; comments: number; notes: number }
 }
 type Counts = ReturnType<Review['counts']>
@@ -224,10 +221,8 @@ function ReaderBar({
 
 function ReviewBar({ slug, frame, shown }: { slug: string; frame: () => PageWindow | null; shown: () => string | null }) {
   const jobs = useStore((s) => s.jobs)
-  const send = useStore((s) => s.sendFeedback)
   const revision = jobs.find((j) => j.kind === 'revise' && j.slug === slug && isActive(j))
   const [counts, setCounts] = useState<Counts | null>(null)
-  const [sending, setSending] = useState(false)
   const review = useCallback((): Review | null => {
     try {
       return frame()?.bn?.review || null
@@ -254,25 +249,6 @@ function ReviewBar({ slug, frame, shown }: { slug: string; frame: () => PageWind
     const t = setInterval(tick, 1500)
     return () => clearInterval(t)
   }, [slug, !!revision, review, shown]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const onSend = async () => {
-    const r = review()
-    if (!r) return
-    setSending(true)
-    try {
-      await send(slug, r.markdown())
-      try {
-        r.sent()
-      } catch {
-        /* older page */
-      }
-      sync.push(slug)
-      toast.success('Sent. The tutor revises this page.')
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-    setSending(false)
-  }
 
   let body: React.ReactNode = null
   let action: React.ReactNode = null
@@ -302,13 +278,8 @@ function ReviewBar({ slug, frame, shown }: { slug: string; frame: () => PageWind
           <b className="font-medium text-foreground">
             {[counts.answers && plural(counts.answers, 'answer'), counts.comments && plural(counts.comments, 'comment'), counts.notes && 'notes'].filter(Boolean).join(' · ')}
           </b>{' '}
-          ready to send
+          ready to send from the page's comments panel
         </span>
-      )
-      action = (
-        <Button onClick={onSend} disabled={sending} className="shrink-0 max-desk:h-9 max-desk:px-3.5">
-          {sending ? <Spinner className="border-primary-foreground/30 border-t-primary-foreground" /> : <SendIcon className="size-3.5" />} Send to tutor
-        </Button>
       )
     } else body = <span>Answer the questions, or select text to comment. Answers sync across your devices.</span>
   }

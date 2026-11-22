@@ -58,7 +58,6 @@ interface State {
   removeLink(id: string): Promise<void>
   createJob(body: { items: string[]; focus: string; project: string; search: boolean }): Promise<Job>
   cancelJob(id: string): Promise<void>
-  sendFeedback(slug: string, markdown: string): Promise<Job>
 }
 
 let pollT: ReturnType<typeof setTimeout> | undefined
@@ -223,13 +222,6 @@ export const useStore = create<State>()((set, get) => {
     async cancelJob(id) {
       await api(`jobs/${id}/cancel`, { method: 'POST' })
       await get().loadInbox()
-    },
-
-    async sendFeedback(slug, markdown) {
-      const j = await api<Job>(`lessons/${encodeURIComponent(slug)}/feedback`, { method: 'POST', body: { markdown } })
-      set({ jobs: [j, ...get().jobs.filter((x) => x.id !== j.id)] })
-      schedulePoll()
-      return j
     },
   }
 })
