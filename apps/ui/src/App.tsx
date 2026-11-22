@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AppShell } from '@/components/shell'
+import { OfflineBadge } from '@/components/offline'
 import { JobsView } from '@/views/JobsView'
 import { ListView } from '@/views/LibraryView'
 import { NewLessonView } from '@/views/NewLessonView'
@@ -104,6 +105,7 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={400} skipDelayDuration={200}>
       <AppShell route={route}>{view}</AppShell>
+      <OfflineBadge />
       <Toaster
         position={desk ? 'bottom-right' : 'top-center'}
         offset={desk ? { right: 20, bottom: 64 } : undefined}

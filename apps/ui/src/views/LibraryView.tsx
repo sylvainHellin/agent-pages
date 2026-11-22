@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Empty, ProjectDot, STATUS_LABEL, StatusMark } from '@/components/bits'
 import { defaultMonth, itemColor, Legend, MonthGrid, MonthNav, MonthSummary, MonthTitle, PhoneMonth, SearchField } from '@/components/board'
 import { LessonsEmptyHowto } from '@/components/lessons'
+import { SavedMark } from '@/components/offline'
 
 export type ListScope = { kind: 'all' } | { kind: 'project'; id: string } | { kind: 'unlinked' } | { kind: 'area'; area: string }
 
@@ -256,6 +257,7 @@ function Row({ item: i, area, when, prefer, picking }: { item: Item; area: strin
             </span>
           ) : null}
         </span>
+      <SavedMark url={i.url} />
       <span className="shrink-0 text-xs whitespace-nowrap text-faint tabular-nums" title={`${STATUS_LABEL[i.status]} · changed ${t.toLocaleString()}`}>
         {when}
       </span>

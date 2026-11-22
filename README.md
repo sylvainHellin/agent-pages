@@ -69,7 +69,7 @@ New pages link `template/` by `file://` path, with the theme and the Vim keys de
 They record the id of the agent session that wrote them (`$AGENT_PAGES_SESSION`, else `$PI_SESSION_ID`) in `<meta name="agent-pages-session">`, and the comment export repeats it, so an agent in a later session can look up the conversation behind the page.
 `open` opens a page under a configured root from the server once it serves the current version of the file (it waits up to 15 s for Syncthing), so its comments sync between devices; otherwise it opens the file and says why.
 
-Tests: `uv run python -m unittest discover -s tests`.
+Tests: `uv run python -m unittest discover -s tests` and `node --test tests/*.test.mjs`.
 
 ## Where things live
 
@@ -104,6 +104,9 @@ tailscale serve --bg --https=8443 http://127.0.0.1:8320
 
 Then set `base_url = "https://<machine>.<tailnet>.ts.net:8443"` in the config; HTTPS also lets the pages' Export button write to the clipboard.
 On an iPhone, open that URL in Safari and use Share, Add to Home Screen.
+
+The app keeps itself and every page opened in it readable with no connection: a service worker (`apps/ui/public/sw.js`, served at `/sw.js`) shows the saved copy first and asks the server for a newer one in the background, and a page's Download for offline button also saves the images it references.
+Service workers need HTTPS or localhost, so offline reading works behind `tailscale serve` or on `127.0.0.1`, not on a plain `http://` tailnet address.
 
 ## Agent skills
 

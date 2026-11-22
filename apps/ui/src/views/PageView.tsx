@@ -3,10 +3,13 @@
    Opening it in place kept the app's history but left the phone's standalone app with no way back.
    The status button opens the details dialog (status, tags, projects; PATCH api/items/<id>); the lesson tag writes the
    lesson marker into the page file, and the page goes on to the lesson reader (#/l/<slug>), as does a #/r/ link to a
-   page that already has the tag. */
+   page that already has the tag.
+   "Download for offline" saves the page with its template files and images in the service worker's cache. */
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRightIcon, ChevronLeftIcon } from 'lucide-react'
+import { ArrowUpRightIcon, ChevronLeftIcon, CloudDownloadIcon } from 'lucide-react'
+import { toast } from 'sonner'
 import { rootUrl, STATUSES, type Status } from '@/lib/api'
+import { prefetchPages } from '@/lib/offline'
 import { stackTables } from '@/lib/reader-page'
 import { bindPageTheme, borrowPageTokens } from '@/lib/theme'
 import { lessonHash, navigate } from '@/lib/router'
@@ -21,6 +24,20 @@ const ICON = {
   back: '<path d="m15 18-6-6 6-6"/>',
   tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
   alone: '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
+  download: '<path d="M12 13v8l-4-4"/><path d="m12 21 4-4"/><path d="M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284"/>',
+}
+
+/** Save one page for offline reading, with a toast saying what it cost. */
+async function downloadForOffline(url: string) {
+  const id = toast.loading('Saving the page for offline reading…')
+  try {
+    const r = await prefetchPages([url])
+    const kb = Math.round(r.bytes / 1024)
+    if (r.skipped.length || r.failed.length) toast.warning('Saved in part', { id, description: `${r.skipped.length + r.failed.length} files missing, ${kb} kB saved` })
+    else toast.success('Saved for offline reading', { id, description: `${r.pages + r.files} new files, ${kb} kB` })
+  } catch (e) {
+    toast.error((e as Error).message, { id })
+  }
 }
 
 /* the status dot of the page bar, drawn with the page's own tokens */
@@ -49,6 +66,7 @@ interface BarActions {
   status?: Status
   tags?: string[]
   details?: () => void
+  download?: () => void
 }
 
 /** Back, the status and tags buttons and Open alone in the page's own top bar; false when the page has no such bar. */
@@ -97,6 +115,11 @@ function mountBar(d: Document, a: BarActions): boolean {
     tg.addEventListener('click', a.details)
     bar.appendChild(tg)
   }
+  if (a.download) {
+    const dl = btn('button', 'bn-app-download', 'Download for offline', ICON.download)
+    dl.addEventListener('click', a.download)
+    bar.appendChild(dl)
+  }
   const alone = btn('a', 'bn-app-alone', 'Open the page alone', ICON.alone, a.path ? `Open the page alone: ${a.path}` : undefined) as HTMLAnchorElement
   alone.href = a.alone
   alone.target = '_blank'
@@ -137,7 +160,7 @@ export function PageView({ url, backHash }: { url: string; backHash: string }) {
   useEffect(() => () => borrowPageTokens(null), [])
 
   /* the page's bar learns the path, the status and the tags once the list has loaded, and follows their changes */
-  const actions: BarActions = { back: backHash, alone: src, path: page?.path, status: page?.status, tags: page?.tags, details: page ? () => setDetails(true) : undefined }
+  const actions: BarActions = { back: backHash, alone: src, path: page?.path, status: page?.status, tags: page?.tags, details: page ? () => setDetails(true) : undefined, download: () => downloadForOffline(url) }
   const actionsRef = useRef(actions)
   actionsRef.current = actions
   const tagKey = page?.tags.join(',')
@@ -185,6 +208,11 @@ export function PageView({ url, backHash }: { url: string; backHash: string }) {
             </>
           ) : null}
           <ThemeButton className="desk:size-7" iconClassName="size-[18px] desk:size-4" />
+          <IconTip label="Download for offline" side="bottom">
+            <Button variant="ghost" size="icon" className="shrink-0 desk:size-7" onClick={() => downloadForOffline(url)} aria-label="Download for offline">
+              <CloudDownloadIcon className="size-[18px] desk:size-4" />
+            </Button>
+          </IconTip>
           <IconTip label="Open the page alone" side="bottom">
             <Button variant="ghost" size="icon" asChild className="shrink-0 desk:size-7">
               <a href={src} target="_blank" rel="noopener" aria-label="Open the page alone">
