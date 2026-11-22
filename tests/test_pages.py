@@ -181,6 +181,41 @@ class NewPage(TempHome):
             self.run_cli("new", str(self.tmp / "none.html"))
             self.assertNotIn("agent-pages-session", (self.tmp / "none.html").read_text())
 
+    def test_readded_session_moves_to_the_end(self):
+        from agent_pages.page import add_session, page_sessions
+        page = add_session(add_session(add_session('<head>\n<meta charset="utf-8">\n<title>t</title>', "a"), "b"), "c")
+        self.assertEqual(page_sessions(page), ["a", "b", "c"])
+        moved = add_session(page, "a")
+        self.assertEqual(page_sessions(moved), ["b", "c", "a"])  # newest last: Send to agent tries it first
+        self.assertEqual(moved.count("agent-pages-session"), 1)
+        self.assertEqual(add_session(moved, "a"), moved)  # already the newest: unchanged
+
+    def test_subagent_records_its_parent_session(self):
+        """A pi-subagents child's bash has PI_SESSION_ID of the child; the page records the parent that dispatched it."""
+        from agent_pages.page import current_session
+        sessions = self.tmp / "sessions"
+        sessions.mkdir()
+        parent = sessions / "p_01a20000-0000-7000-8000-000000000001.jsonl"
+        parent.write_text(json.dumps({"type": "session", "id": "01a20000-0000-7000-8000-000000000001", "cwd": "/x"}) + "\n"
+                          + json.dumps({"type": "message", "message": {"role": "system", "content": "You are pi."}}) + "\n")
+        child = sessions / "c_01a20000-0000-7000-8000-000000000002.jsonl"
+        child.write_text(json.dumps({"type": "session", "id": "01a20000-0000-7000-8000-000000000002", "cwd": "/x",
+                                     "parentSession": str(parent)}) + "\n"
+                         + json.dumps({"type": "message", "message": {"role": "system", "content": "",
+                                       "sections": {"tail": "<sub_agent_context>You are a sub-agent</sub_agent_context>"}}}) + "\n")
+        env = {"AGENT_PAGES_SESSION": "", "PI_SESSION_ID": "01a20000-0000-7000-8000-000000000002", "PI_SESSION_FILE": str(child)}
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(current_session(), "01a20000-0000-7000-8000-000000000001")
+        with mock.patch.dict(os.environ, {**env, "AGENT_PAGES_SESSION": "explicit-1"}):
+            self.assertEqual(current_session(), "explicit-1")  # what the parent passed wins
+        orphan = sessions / "o_01a20000-0000-7000-8000-000000000003.jsonl"
+        orphan.write_text(child.read_text().replace(str(parent), str(sessions / "gone.jsonl")))
+        with mock.patch.dict(os.environ, {**env, "PI_SESSION_FILE": str(orphan)}):
+            self.assertIsNone(current_session())  # never the subagent's own id
+        with mock.patch.dict(os.environ, {**env, "PI_SESSION_ID": "01a20000-0000-7000-8000-000000000001",
+                                          "PI_SESSION_FILE": str(parent)}):
+            self.assertEqual(current_session(), "01a20000-0000-7000-8000-000000000001")  # a top-level session
+
     def test_session_goes_after_the_kind_line(self):
         from agent_pages.page import add_session
         page = '<head>\n<meta charset="utf-8">\n<meta name="agent-pages-kind" content="lesson">\n<title>t</title>'

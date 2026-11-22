@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 from pathlib import Path
@@ -49,18 +50,59 @@ def set_doc_id(page: str, slug: str) -> str:
     return re.sub(r'data-doc-id="[^"]*"', lambda _: f'data-doc-id="{html.escape(slug)}"', page, count=1)
 
 
-# The agent sessions that wrote a page, oldest first, so a later session can look up the conversation behind it.
-# The first of these variables that is set names the current session; AGENT_PAGES_SESSION serves any agent harness.
+# The agent sessions that wrote a page, oldest first (the newest last), so a later session can look up the
+# conversation behind it and Send to agent reaches the newest one first.
+# AGENT_PAGES_SESSION serves any agent harness and wins; else PI_SESSION_ID, unless that is a pi-subagents child.
 SESSION_ENV = ("AGENT_PAGES_SESSION", "PI_SESSION_ID")
 SESSION_META = re.compile(r'<meta\s+name="agent-pages-session"\s+content="([^"]*)"\s*/?>\n?', re.I)
+# The prompt markers of a pi-subagents child (the same test as the agent-pages-inbox pi extension).
+SUBAGENT_RE = re.compile(r"<active_agent name=|<sub_agent_context>|operating as a sub-agent")
+HEAD_LINES = 12  # the session header and the system prompt sit in the first lines of a pi session file
+
+
+def _session_head(path: Path) -> tuple[dict, bool] | None:
+    """A pi session file's header and whether its system prompt is a subagent's; None when it cannot be read."""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as f:
+            header = json.loads(f.readline())
+            sub = False
+            for _, line in zip(range(HEAD_LINES), f):
+                if '"role":"system"' in line[:300] or '"role": "system"' in line[:300]:
+                    sub = bool(SUBAGENT_RE.search(line))
+                    break
+    except (OSError, ValueError):
+        return None
+    return (header, sub) if isinstance(header, dict) else None
+
+
+def _pi_session() -> str | None:
+    """PI_SESSION_ID, or for a pi-subagents child the first session up its parentSession chain that is no
+    subagent (the one that dispatched it); None when that chain cannot be followed, never the child's own id."""
+    sid = os.environ.get("PI_SESSION_ID", "").strip()
+    file = os.environ.get("PI_SESSION_FILE", "").strip()
+    if not sid or not file:
+        return sid or None
+    path, seen = Path(file), set()
+    while path not in seen and len(seen) < 8:
+        seen.add(path)
+        head = _session_head(path)
+        if head is None:
+            return sid if len(seen) == 1 else None  # an unreadable own file: trust the variable
+        header, sub = head
+        if len(seen) == 1 and str(header.get("id") or "") != sid:
+            return sid  # PI_SESSION_FILE names another session: it says nothing about this one
+        if not sub:
+            return str(header.get("id") or "").strip() or None
+        parent = str(header.get("parentSession") or "")
+        if not parent:
+            return None
+        path = Path(parent)
+    return None
 
 
 def current_session() -> str | None:
-    for name in SESSION_ENV:
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    return None
+    value = os.environ.get("AGENT_PAGES_SESSION", "").strip()
+    return value or _pi_session()
 
 
 def page_sessions(page: str) -> list[str]:
@@ -69,12 +111,14 @@ def page_sessions(page: str) -> list[str]:
 
 
 def add_session(page: str, session: str) -> str:
-    """Append a session id to the page's session line, adding the line after the charset (and kind) meta."""
+    """Append a session id to the page's session line, adding the line after the charset (and kind) meta; an id
+    the line already lists moves to the end, so the last id is always the newest session that wrote the page."""
     session = "".join(session.split())
     ids = page_sessions(page)
-    if not session or session in ids:
+    if not session or ids[-1:] == [session]:
         return page
-    line = f'<meta name="agent-pages-session" content="{html.escape(" ".join(ids + [session]))}">\n'
+    kept = [i for i in ids if i != session]
+    line = f'<meta name="agent-pages-session" content="{html.escape(" ".join(kept + [session]))}">\n'
     if ids:
         return SESSION_META.sub(lambda _: line, page, count=1)
     anchor = re.search(r'<meta\s+name="agent-pages-kind"[^>]*>\n?', page, re.I) or re.search(r"<meta\s+charset[^>]*>\n?", page, re.I)
