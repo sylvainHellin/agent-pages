@@ -24,6 +24,8 @@
   GET  /api/projects             open projects and areas of the vault
   GET  /api/theme.css            the app theme's tokens, renamed --pg-*, for the app's own colours and fonts (theme.py)
   GET  /app/                     the same app for the phone Web Clip (same build, so old home-screen icons keep working)
+  GET  /sw.js                    the app's service worker (apps/ui/public/sw.js, copied into dist), always revalidated;
+                                 only at the root, so its scope covers the app, /app/ and every page: offline reading
   GET  /api/inbox                collected links + recent jobs
   POST /api/inbox                {"text": "<one or more links>", "note": "..."}  (also from an iOS Shortcut)
   DELETE /api/inbox/<id>
@@ -60,7 +62,8 @@ from .reports import ASSET_EXT, PAGE_EXT, Index, Site, hidden, page_kind
 
 UI = REPO / "apps" / "ui" / "dist"  # one Vite build (base './') served at / and at /app/
 ROOT_ICONS = {"/favicon.ico", "/favicon.png", "/apple-touch-icon.png"}  # from the template, for every page
-RESERVED = {"api", "app", "assets", "lessons", "_template", "healthz", "index.json", "index.html"}
+RESERVED = {"api", "app", "assets", "lessons", "_template", "healthz", "index.json", "index.html", "sw.js"}
+SW = "sw.js"  # the service worker, served at the app root only (a copy under /app/ would get a narrower scope)
 IMMUTABLE = "public, max-age=31536000, immutable"  # Vite's content-hashed files under assets/
 REVIEW_JS = "/_template/review-sync.js"
 HEAD_RE = re.compile(r"<head(?:\s[^>]*)?>", re.I)
@@ -393,7 +396,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(HTTPStatus.MOVED_PERMANENTLY)
             self.send_header("Location", "app/")
             return self.end_headers()
+        if p == "/" + SW:
+            return self._ui(SW)
         if p.startswith("/app/"):
+            if p == "/app/" + SW:
+                return self.send_error(HTTPStatus.NOT_FOUND)
             return self._ui(p[len("/app/"):])
         if p == "/api/inbox":
             return self._json({"items": jobs.inbox(), "jobs": jobs.list_jobs()})

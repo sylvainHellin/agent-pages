@@ -789,6 +789,26 @@ class ServerRoutes(unittest.TestCase):
                 self.assertEqual(body, b"")
                 self.assertEqual(self.get(path, headers={"If-None-Match": '"other"'})[0], 200)
 
+    def test_service_worker_served_at_the_app_root(self):
+        # The service worker must sit at the app root so its scope covers the app, /app/ and every page under a root,
+        # and must always be revalidated, or a fixed worker would not reach the phones that cached the old one.
+        dist = self.home / "dist"
+        (dist / "assets").mkdir(parents=True)
+        (dist / "index.html").write_text("<title>app</title>")
+        (dist / "sw.js").write_text("self.addEventListener('fetch', () => {})\n")
+        with mock.patch.object(app, "UI", dist):
+            req = urllib.request.Request(self.base + "/sw.js")
+            with urllib.request.urlopen(req) as r:
+                body, headers = r.read(), r.headers
+            self.assertEqual(body, (dist / "sw.js").read_bytes())
+            self.assertTrue(headers["Content-Type"].startswith("text/javascript"))
+            self.assertEqual(headers["Cache-Control"], "no-cache")
+            self.assertTrue(headers["ETag"])
+            self.assertEqual(self.get("/sw.js", headers={"If-None-Match": headers["ETag"]})[0], 304)
+            # a second copy under /app/ would register a second worker with a narrower scope
+            self.assertEqual(self.get("/app/sw.js")[0], 404)
+        self.assertTrue((app.REPO / "apps" / "ui" / "public" / "sw.js").is_file())  # Vite copies it into dist
+
     def test_changed_page_gets_new_etag(self):
         path = "/documents/area/plain.html"
         before = self.head_etag(path)
