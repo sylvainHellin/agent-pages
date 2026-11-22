@@ -272,7 +272,9 @@ test('the app beside a lesson in its frame: a refused push leaves the merge to t
   assert.deepEqual(frame.ls('anno:L1').map((x) => x.id).sort(), ['a', 'b', 'c', 'd'])
 })
 
-test('page: hidden while behind with a comment being typed, it merges, sends the merge and reloads when shown again', async () => {
+
+test('page: hidden or left while behind with a comment being typed, it neither writes the storage nor reloads, now or when shown again', async () => {
+  // report.js still holds the draft and its own copy: the comment saved here reaches the server the next time the page opens
   const b = browser()
   b.win.TutorSync.page({ api: '/api/', path: 'reviews/r1', state: { updated: 1, data: { c: [c('a')] } } })
   b.setServer({ updated: 5, data: { c: [c('a'), c('b')] } }) // the phone added b
@@ -280,47 +282,17 @@ test('page: hidden while behind with a comment being typed, it merges, sends the
   b.set('anno:doc-1', [c('a'), c('c')]) // report.js saves the new comment
   await b.every() // refused: based on 1
   await b.every() // still typing: it waits
-  b.win.document.visibilityState = 'hidden' // the reader leaves with the textarea focused
+  const posts = b.posts.length
+  b.win.document.visibilityState = 'hidden'
   await b.fire('visibilitychange')
-  await b.settle()
-  assert.deepEqual(b.server().data.c.map((x) => x.id).sort(), ['a', 'b', 'c'])
-  assert.equal(b.posts.at(-1).keepalive, true)
-  assert.equal(b.win.location.reloaded, 0)
-  b.win.document.visibilityState = 'visible'
-  await b.fire('visibilitychange')
-  assert.equal(b.win.location.reloaded, 1) // report.js still holds [a, c]
-})
-
-test('page: left while behind with a comment being typed, it merges and sends the merge', async () => {
-  const b = browser()
-  b.win.TutorSync.page({ api: '/api/', path: 'reviews/r1', state: { updated: 1, data: { c: [c('a')] } } })
-  b.setServer({ updated: 5, data: { c: [c('a'), c('b')] } })
-  b.win.document.activeElement = { tagName: 'TEXTAREA' }
-  b.set('anno:doc-1', [c('a'), c('c')])
-  await b.every()
   await b.fire('pagehide')
   await b.settle()
-  assert.deepEqual(b.server().data.c.map((x) => x.id).sort(), ['a', 'b', 'c'])
-})
-
-test('a lesson in the app, hidden while behind: it merges and sends, and reloads itself when shown (the app sees nothing new)', async () => {
-  const store = new Map(), net = { server: { updated: 3, data: { c: [c('a')] } } }
-  const app = browser({ docId: null, path: '/app/', store, net })
-  await app.win.TutorSync.pull('/api/', 'L1')
-  const frame = browser({ docId: 'L1', path: '/lessons/L1/', framed: true, store, net, parent: app.win })
-  app.win.frames.push(frame.win)
-  frame.win.TutorSync.page({ api: '/api/', path: 'lessons/L1/review', lesson: true, state: { updated: 3, data: { c: [c('a')] } } })
-  net.server = { updated: 4, data: { c: [c('a'), c('b')] } }
-  frame.win.document.activeElement = { tagName: 'TEXTAREA' }
-  frame.set('anno:L1', [c('a'), c('c')])
-  await frame.every() // refused
-  frame.win.document.visibilityState = 'hidden'
-  await app.win.TutorSync.push('/api/', 'L1', true) // the app's own hidden handler
-  await frame.fire('visibilitychange')
-  await frame.settle()
-  assert.deepEqual(net.server.data.c.map((x) => x.id).sort(), ['a', 'b', 'c'])
-  frame.win.document.visibilityState = 'visible'
-  await frame.fire('visibilitychange')
-  assert.equal(await app.win.TutorSync.pull('/api/', 'L1'), false)
-  assert.equal(frame.win.location.reloaded, 1)
+  assert.deepEqual(b.ls('anno:doc-1'), [c('a'), c('c')])
+  assert.equal(b.ls('tl-sync:doc-1').at, 1)
+  assert.equal(b.posts.length, posts)
+  b.win.document.visibilityState = 'visible'
+  await b.fire('visibilitychange') // shown again, still typing
+  await b.settle()
+  assert.deepEqual(b.ls('anno:doc-1'), [c('a'), c('c')])
+  assert.equal(b.win.location.reloaded, 0)
 })
