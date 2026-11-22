@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { IconTip, ProjectDot } from './bits'
+import { AutoSaveMenuItem, AutoSaveRow } from './offline'
 import { ThemeButton } from './theme-toggle'
 
 export function LogoMark({ className }: { className?: string }) {
@@ -160,6 +161,7 @@ function Sidebar({ route }: { route: Route }) {
         <AreaList route={route} />
       </div>
       <div className="flex flex-col gap-px border-t px-2 py-2">
+        <AutoSaveRow />
         <a href={VAULT} target="_blank" rel="noopener" className="flex h-7 items-center gap-1 rounded-md px-2 text-[12.5px] text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.04] hover:text-foreground">
           Vault <ArrowUpRightIcon className="size-3" />
         </a>
@@ -209,6 +211,8 @@ function FilterMenu({ route }: { route: Route }) {
             ? g.subs.map(([a, n]) => row(a, areaHash(a), <span className="mx-1 size-[7px] shrink-0" />, a.slice(g.id.length + 1), n, area === a))
             : []),
         ])}
+        <DropdownMenuSeparator />
+        <AutoSaveMenuItem />
       </DropdownMenuContent>
     </DropdownMenu>
   )

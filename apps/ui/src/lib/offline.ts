@@ -1,9 +1,11 @@
 /* Offline reading: registers the service worker (public/sw.js, served at the app root), tracks whether the app is
    offline (navigator.onLine, or the worker saying a request failed), keeps the set of pages saved on this device,
-   shows the "updated, reload" hint the worker asks for, and downloads pages for offline reading (prefetchPages). */
+   shows the "updated, reload" hint the worker asks for, downloads pages for offline reading (prefetchPages), and
+   has the worker save every Open page unless the reader turned that off (autoSave, auto-save.ts). */
 import { useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import { APP_ROOT, rootUrl } from './api'
+import { AUTO_BUDGET, autoSaver, readAutoSetting, writeAutoSetting, type AutoReason, type AutoResult } from './auto-save'
 import { askWorker, type Msg } from './worker-ask'
 
 export interface PrefetchResult {
@@ -29,6 +31,15 @@ export const useOffline = () => useSyncExternalStore(subscribe, isOffline)
 const savedSnapshot = () => saved
 /** The pathnames of the pages this device can show offline. */
 export const useSavedPages = () => useSyncExternalStore(subscribe, savedSnapshot)
+
+let saving: { done: number; total: number } | null = null // the worker's auto run, while it saves the Open pages
+const savingSnapshot = () => saving
+export const useSaving = () => useSyncExternalStore(subscribe, savingSnapshot)
+
+let autoOn = typeof localStorage === 'undefined' ? true : readAutoSetting(localStorage)
+const autoSnapshot = () => autoOn
+/** Whether every Open page is downloaded (the switch, on by default). */
+export const useAutoSave = () => useSyncExternalStore(subscribe, autoSnapshot)
 
 const supported = () => 'serviceWorker' in navigator && window.isSecureContext && !import.meta.env.DEV
 
@@ -59,6 +70,45 @@ export async function prefetchPages(urls: string[], { budget = 50e6 }: { budget?
   return r
 }
 
+const runAuto = autoSaver({
+  enabled: () => autoOn,
+  online: () => supported() && !isOffline(),
+  now: () => Date.now(),
+  toUrl: (u) => rootUrl(u.replace(/^\//, '')),
+  ask: (msg) => ask<AutoResult>(msg, 30 * 60_000),
+})
+let shownNotSaved = 0
+
+/** Have the worker save every Open page of `items` (the list just loaded from the server), evict the ones it saved that
+    are no longer open, and say once when the budget left some out. Nothing when the switch is off. */
+export async function autoSave(items: { url: string; status: string; changed: number }[], reason: AutoReason): Promise<void> {
+  let r: AutoResult | null
+  try {
+    r = await runAuto(items, reason)
+  } catch {
+    return // no worker, or it did not answer in time
+  }
+  if (!r || r.busy || r.error) return
+  refreshSaved()
+  const n = r.notSaved.length
+  if (n && n !== shownNotSaved) {
+    toast.warning(`${n} Open page${n > 1 ? 's' : ''} not saved offline`, {
+      id: 'auto-save',
+      description: `Over the ${Math.round(AUTO_BUDGET / 1e6)} MB kept for Open pages: the ones changed last are saved`,
+    })
+  }
+  shownNotSaved = n
+}
+
+/** The switch: kept in localStorage; turned on, it saves the Open pages of `items` at once (null: the list has not
+    loaded, so nothing runs, since an empty list would evict every page saved so far). */
+export function setAutoSave(on: boolean, items: { url: string; status: string; changed: number }[] | null): void {
+  autoOn = on
+  writeAutoSetting(localStorage, on)
+  emit()
+  if (on && items) autoSave(items, 'switch')
+}
+
 /* The lists the app's first screen loads (store.ts loadPages); the worker keeps their last copy for offline use.
    tests/sw.test.mjs checks the two agree. */
 const LISTS = ['api/items', 'api/projects']
@@ -84,6 +134,10 @@ function onMessage(e: MessageEvent) {
   const d = (e.data || {}) as Msg
   if (d.type === 'agent-pages:net') {
     workerOffline = d.online === false
+    emit()
+  } else if (d.type === 'agent-pages:progress') {
+    const total = Number(d.total) || 0
+    saving = d.running && total ? { done: Number(d.done) || 0, total } : null
     emit()
   } else if (d.type === 'agent-pages:saved' && typeof d.url === 'string') {
     const p = new URL(d.url).pathname
@@ -136,6 +190,16 @@ export function startOffline(): void {
   if (!first) refreshSaved() // before register(), which fails offline (it fetches sw.js to look for a new one)
   navigator.serviceWorker
     .register(rootUrl('sw.js'), { scope: APP_ROOT.href })
-    .then(() => navigator.storage?.persist?.().catch(() => {})) // WebKit keeps a Home Screen app's storage when asked
+    .then(persistOnce)
     .catch((e) => first && console.warn('agent-pages: no offline worker:', e))
+}
+
+/** WebKit keeps a Home Screen app's storage when asked: asked once, and not again once granted. */
+let persistAsked = false
+function persistOnce() {
+  if (persistAsked || !navigator.storage?.persist) return
+  persistAsked = true
+  Promise.resolve(navigator.storage.persisted?.())
+    .then((granted) => granted || navigator.storage.persist())
+    .catch(() => {})
 }

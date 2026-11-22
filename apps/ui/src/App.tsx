@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { useDraft } from '@/lib/draft'
+import { autoSave } from '@/lib/offline'
 import { useIsDesktop } from '@/lib/hooks'
 import { navigate, parse, useHash } from '@/lib/router'
 import { useStore } from '@/lib/store'
@@ -20,22 +21,34 @@ export default function App() {
   const desk = useIsDesktop()
   const back = useRef('#/') // the list a page was opened from
 
-  // first load, and fresh lists whenever the app comes back to the front
+  // first load, and fresh lists whenever the app comes back to the front or back online; each list loaded from the
+  // server has the offline worker save its Open pages (lib/offline.ts autoSave: on load, then at most every 30 min)
   useEffect(() => {
     const { loadInbox, loadPages } = useStore.getState()
-    loadPages().catch((e) => toast.error(`Could not load the pages: ${(e as Error).message}`))
+    const save = (reason: 'load' | 'visible' | 'online') => autoSave(useStore.getState().pages, reason)
+    loadPages().then(
+      () => save('load'),
+      (e) => toast.error(`Could not load the pages: ${(e as Error).message}`),
+    )
     loadInbox().catch(() => {})
     let last = Date.now()
     const again = () => {
       if (document.visibilityState !== 'visible' || Date.now() - last < 5000) return
       last = Date.now()
-      useStore.getState().refreshAll().catch(() => {})
+      const s = useStore.getState()
+      s.loadPages().then(() => save('visible'), () => {})
+      s.loadInbox().catch(() => {})
+    }
+    const online = () => {
+      useStore.getState().loadPages().then(() => save('online'), () => {})
     }
     document.addEventListener('visibilitychange', again)
     window.addEventListener('focus', again)
+    window.addEventListener('online', online)
     return () => {
       document.removeEventListener('visibilitychange', again)
       window.removeEventListener('focus', again)
+      window.removeEventListener('online', online)
     }
   }, [])
 
