@@ -486,8 +486,8 @@ class ServerRoutes(unittest.TestCase):
         items = self.items()
         tutor = items[f"/lessons/{SLUG}/"]
         self.assertEqual((tutor["origin"], tutor["slug"], tutor["title"], tutor["status"], tutor["tags"], tutor["key"]),
-                         ("tutor", SLUG, "A lesson", "open", ["lesson"], SLUG))
-        self.assertEqual(tutor["id"], reports.review_id(SLUG))
+                         ("tutor", SLUG, "A lesson", "open", ["lesson"], f"tutor:{SLUG}"))
+        self.assertEqual(tutor["id"], reports.review_id(f"tutor:{SLUG}"))
         marked = items[INPLACE_URL]
         self.assertEqual((marked["origin"], marked["tags"], marked["key"], marked["slug"], marked["status"]),
                          ("report", ["lesson"], "2026-03-04_how-it-works", reports.inplace_slug(INPLACE_URL), "open"))
@@ -567,6 +567,26 @@ class ServerRoutes(unittest.TestCase):
         self.assertEqual((item["status"], item["tags"]), ("done", ["mine", "lesson"]))  # its unchanged tags do not undo the PATCH
         status, r = self.patch(item["id"], {"status": "open"})
         self.assertEqual((status, r["status"]), (200, "open"))  # a later PATCH wins again
+
+    def test_copy_of_a_tutor_lesson_under_a_root_is_its_own_page(self):
+        lesson = self.cfg.lessons_dir / SLUG / "index.html"
+        lesson.write_text(LESSON_PAGE.replace("2026-03-04_how-it-works", SLUG))  # data-doc-id = the slug, as lessons.py stamps it
+        copy = self.home / "docs" / "area" / "copy.html"
+        self.write_page("area/copy.html", lesson.read_text())
+        before = copy.read_text()
+        items = self.items()
+        tutor, twin = items[f"/lessons/{SLUG}/"], items["/documents/area/copy.html"]
+        self.assertNotEqual(tutor["id"], twin["id"])
+        self.assertEqual(twin["shared"], [])
+        status, r = self.patch(tutor["id"], {"status": "done", "tags": ["x"]})
+        self.assertEqual((status, r["origin"], r["status"]), (200, "tutor", "done"))
+        self.assertEqual(copy.read_text(), before)  # the copy keeps its marker
+        items = self.items()
+        self.assertEqual((items["/documents/area/copy.html"]["status"], items["/documents/area/copy.html"]["tags"]),
+                         ("open", ["lesson"]))
+        # the tutor lesson's review sync is keyed by its slug, untouched by the copy
+        self.assertEqual(self.post(f"/api/lessons/{SLUG}/review", {"data": {"notes": "n"}})[0], 200)
+        self.assertEqual(json.loads(self.get(f"/api/lessons/{SLUG}/review")[1])["data"], {"notes": "n"})
 
     def test_status_and_tags_survive_a_move(self):
         self.write_page("area/ided.html", REVIEW_PAGE.format(id="moving"))

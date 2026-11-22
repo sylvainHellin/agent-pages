@@ -14,8 +14,9 @@ Where the pages come from:
                 always carry the tag "lesson"
 
 What the reader sets lives in <lessons>/_data/items.json, keyed by the page's storage key (reports.review_key: its
-data-doc-id, else its URL; a tutor lesson's slug): {status, tags, projects, topic, summary, title?, sent_at?,
-updated, lesson?}. A page that keeps its data-doc-id keeps its status and tags through a move. Statuses are open (the
+data-doc-id, else its URL; tutor:<slug> for a tutor lesson, so a copy of its page under a root, which carries the
+slug as its data-doc-id, is a page of its own): {status, tags, projects, topic, summary, title?, sent_at?, updated,
+lesson?}. A page that keeps its data-doc-id keeps its status and tags through a move. Statuses are open (the
 default), sent, done and archived; a sent page whose file changed after sent_at is listed as open again.
 
 items.json is written only by a PATCH and by mark_sent, with the fields they set. A field it lacks comes from the
@@ -56,6 +57,11 @@ SETTABLE = ("open", "done", "archived")  # sent is set by Send to agent (mark_se
 OLD_STATUS = {"learning": "open", "understood": "done", "archived": "archived"}
 EDITABLE = {"title", "topic", "summary", "projects", "tags", "status"}
 LESSON_TAG = "lesson"
+TUTOR = "tutor:"  # the items.json key of a tutor lesson is TUTOR + its slug
+
+
+def tutor_key(slug: str) -> str:
+    return TUTOR + slug
 
 _lock = threading.RLock()
 _pages = None  # the report page index (reports.Index)
@@ -288,7 +294,7 @@ def _report_entry(key: str, url: str, items: dict, old: dict) -> dict:
 def _tutor_entry(slug: str, items: dict, meta: dict, mtime: float) -> dict:
     """A tutor lesson's fields: lesson.json, under what items.json stores for it. A lesson.json written after the
     stored entry wins for each field whose value differs from the one it had when that field was stored."""
-    stored = items.get(slug) or {}
+    stored = items.get(tutor_key(slug)) or {}
     lesson = _old_fields(meta)
     seen = stored.get("lesson") if isinstance(stored.get("lesson"), dict) else {}
     out = {**lesson, **stored}
@@ -387,7 +393,7 @@ def _tutor_bases() -> list[tuple[dict, dict]]:
         meta = _lesson_json(d.name)
         mtime = page.stat().st_mtime
         base = {
-            "key": d.name, "url": f"/lessons/{d.name}/", "title": _title_from_html(page) or d.name,
+            "key": tutor_key(d.name), "url": f"/lessons/{d.name}/", "title": _title_from_html(page) or d.name,
             "path": _display(page), "mtime": mtime, "root": "lessons", "area": "lessons", "origin": "tutor",
             "slug": d.name, "doc_id": d.name, "sessions": [], "created": str(meta.get("created") or d.name[:10]),
             "counts": _count(page), "shared": [],

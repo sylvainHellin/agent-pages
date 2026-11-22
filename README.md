@@ -74,7 +74,7 @@ Tests: `uv run python -m unittest discover -s tests`.
 
 - Lessons: `<lessons_dir>/<YYYY-MM-DD>_<slug>/` with `index.html`, `lesson.json` and `figures/`; `<lessons_dir>/_assets` is a symlink to `template/` (`agent-pages lesson new` creates it).
 - Server state (review sync, inbox, jobs, statuses and tags): `<lessons_dir>/_data/`, never served as files.
-- Status, tags, projects, topic and summary of every page: `<lessons_dir>/_data/items.json`, keyed by the page's `data-doc-id` (its URL when it has none, a tutor lesson's slug), so a page that keeps its id keeps them through a move; the lesson tag of a page under a root is its marker, in the file.
+- Status, tags, projects, topic and summary of every page: `<lessons_dir>/_data/items.json`, keyed by the page's `data-doc-id` (its URL when it has none, `tutor:<slug>` for a tutor lesson), so a page that keeps its id keeps them through a move; the lesson tag of a page under a root is its marker, in the file.
   Only a change in the app writes it, and only the fields it sets; every other field comes from the older `_data/pages.json` and, for a tutor lesson, from its `lesson.json` (status `open`, `done` or `archived`; `learning` and `understood` still read as open and done), which the server reads and never writes.
   A `lesson.json` the tutor rewrites after a change in the app wins for each field whose value it changed.
 - Comments, answers and notes of every page the server serves: `<lessons_dir>/_data/review/` (lessons by slug, report pages under `pages/` by their `data-doc-id`); a page opened as a file keeps them in that browser only.
