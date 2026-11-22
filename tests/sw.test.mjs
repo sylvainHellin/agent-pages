@@ -382,15 +382,18 @@ test('auto: a page no longer open is evicted when it was auto-downloaded; one sa
     'documents/a/img/seen.png': 'V',
     'documents/a/still.html': pageHtml('img/still.png'),
     'documents/a/img/still.png': 'T',
+    'documents/a/later.html': pageHtml('img/later.png'),
+    'documents/a/img/later.png': 'L',
   }
   const w = worker(files)
   await w.request(SCOPE + 'documents/a/seen.html', { mode: 'navigate', cache: 'default' }) // opened in the app before
-  await auto(w, ['documents/a/auto.html', 'documents/a/hand.html', 'documents/a/seen.html', 'documents/a/still.html'])
+  await auto(w, ['documents/a/auto.html', 'documents/a/hand.html', 'documents/a/seen.html', 'documents/a/still.html', 'documents/a/later.html'])
   await w.ask({ type: 'agent-pages:prefetch', urls: [SCOPE + 'documents/a/hand.html'] }) // Download for offline
+  await w.request(SCOPE + 'documents/a/later.html', { mode: 'navigate', cache: 'default' }) // auto saved it, then it was opened
   const r = await auto(w, ['documents/a/still.html']) // the others are done or archived now
   assert.deepEqual([...r.evicted].map((u) => u.slice(SCOPE.length)), ['documents/a/auto.html'])
   assert.deepEqual(await pagesCached(w), [
-    '_template/report.css', 'documents/a/hand.html', 'documents/a/img/seen.png', 'documents/a/img/shared.png', 'documents/a/img/still.png',
-    'documents/a/seen.html', 'documents/a/still.html',
+    '_template/report.css', 'documents/a/hand.html', 'documents/a/img/later.png', 'documents/a/img/seen.png', 'documents/a/img/shared.png',
+    'documents/a/img/still.png', 'documents/a/later.html', 'documents/a/seen.html', 'documents/a/still.html',
   ])
 })

@@ -21,7 +21,8 @@
                                                     until the pages and files of the list pass budget (150 MB), the rest not
                                                     saved; then the pages this saved before that are no longer in urls, or
                                                     are past the budget, are evicted with the files they added that no saved
-                                                    page still uses (a page it could not reach keeps its copy)
+                                                    page still uses (a page it could not reach keeps its copy, and a page
+                                                    opened in the app is never evicted)
      {type: 'agent-pages:warm', urls}               what the app loaded before this worker controlled it
      {type: 'agent-pages:cached'}                   the pages that are saved, {urls: [...]}
    Network state changes are posted as {type: 'agent-pages:net', online}, a page put in the cache as
@@ -255,7 +256,20 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
         .catch(function () {})
     }
 
+    /* A page the reader opened is the reader's: auto no longer evicts it (auto's own requests do not pass here). */
     function handle(e, s) {
+      var res = serve(e, s)
+      if (e.request.mode !== 'navigate' || !s.notify || s.shell) return res
+      return res.then(function (r) {
+        if (r && r.status === 200) e.waitUntil(updateAuto(function (rec) {
+          if (!rec[s.key]) return false
+          delete rec[s.key]
+        }).catch(function () {}))
+        return r
+      })
+    }
+
+    function serve(e, s) {
       var req = e.request
       if (s.kind === 'cache-first') {
         return lookup(s).then(function (hit) {
@@ -282,7 +296,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
     }
 
     /* The pages auto saved that were not in the cache before, each with the files it added: {pageUrl: [fileUrl]}.
-       Updates run one after the other. */
+       Updates run one after the other; a change that returns false writes nothing. */
     var AUTO_KEY = new URL('.agent-pages-auto.json', scope).href
     var autoQueue = Promise.resolve()
     function readAuto() {
@@ -293,7 +307,8 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
     function updateAuto(change) {
       var job = autoQueue.then(function () {
         return readAuto().then(function (rec) {
-          return Promise.resolve(change(rec)).then(function () {
+          return Promise.resolve(change(rec)).then(function (r) {
+            if (r === false) return
             var body = new Response(JSON.stringify(rec), { headers: { 'Content-Type': 'application/json' } })
             return caches.open(SW.CACHES.meta).then(function (c) { return c.put(AUTO_KEY, body) })
           })
