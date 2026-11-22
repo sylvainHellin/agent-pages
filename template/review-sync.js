@@ -17,7 +17,8 @@
    {stale: true}) when another device saved since, and the device pulls and merges first.
    report.js keeps its own copy of the stored state and writes it back on every edit, so a page takes in a newer
    server state only when the reader is not typing, and reloads right after: until then it neither writes the
-   storage nor pushes, and the meta keeps the old base for the merge.
+   storage nor pushes, and the meta keeps the old base for the merge. Hidden or left, report.js writes nothing more:
+   the page then merges at once and sends the merge, and reloads when it is shown again.
    The app never merges into the storage of a page its frame shows (report.js there would write its older copy
    back): its push for that key goes through the page's own, which merges only as above. */
 (function () {
@@ -210,6 +211,21 @@
       }).catch(function () { waiting = false; return false; })
         .then(function (changed) { pulling = false; if (changed) location.reload(); return changed; });
     }
+    // Hidden or left while a newer state waits: report.js writes nothing more, so merge now and send it;
+    // the page reloads when shown again, since report.js still holds the older copy.
+    var due = false;
+    function flush() {
+      return req(api, path).then(function (srv) {
+        waiting = false;
+        var r = apply(k, srv);
+        if (r === 'wrote' || r === 'merged') due = true;
+        if (r === 'merged' || r === 'dirty') return pushTo(api, path, k, true);
+      }).catch(function () {});
+    }
+    function away() {
+      if (waiting || behind[k]) flush();
+      else send(true);
+    }
     pages[k] = send;
     if (o.state) {
       var r = apply(k, o.state); // before report.js reads the storage
@@ -220,14 +236,15 @@
       else if (!pulling && !editing()) catchUp();
     }, 1500);
     function back() {
+      if (due) { due = false; location.reload(); return; }
       if (o.lesson && framed) return; // the app's reader pulls lessons and reloads them itself
       if (!pulling) catchUp();
     }
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'hidden') send(true);
+      if (document.visibilityState === 'hidden') away();
       else back();
     });
-    window.addEventListener('pagehide', function () { send(true); });
+    window.addEventListener('pagehide', away);
     window.addEventListener('pageshow', function (e) { if (e && e.persisted) back(); });
     if (waiting) catchUp();
   }
