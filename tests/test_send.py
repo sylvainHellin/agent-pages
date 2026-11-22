@@ -547,6 +547,28 @@ class SendToAgent(unittest.TestCase):
         until(lambda: self.record()["state"] == "started", what="the route after the grace")
         self.assertEqual(self.record()["route"], "resuming")
 
+    def test_a_grace_send_with_no_route_after_the_grace_is_stored_as_none(self):
+        with mock.patch.multiple(agents, GRACE_S=60):
+            self.assertEqual(self.send()[1]["route"], "pending")
+        agents.after_grace()
+        rec = self.record()
+        self.assertEqual((rec["state"], rec["route"], rec["error"]),
+                         ("none", "none", "no agent holds this session; start a new one"))
+        stored = json.loads((library.DATA / "sends" / "send-0001.json").read_text())
+        self.assertNotIn("grace", stored)
+
+    def test_after_grace_routes_the_current_record_not_its_listing(self):
+        with mock.patch.multiple(agents, GRACE_S=60):
+            self.send()
+            listing = agents._records()  # what after_grace listed before a pi connected
+            s = self.listen(S_OLD)
+        until(s.sends)
+        self.assertEqual(self.req("POST", "/api/agents/claim/send-0001")[0], 200)
+        with mock.patch.object(agents, "_records", return_value=listing):
+            agents.after_grace()
+        time.sleep(0.2)
+        self.assertEqual((self.record()["state"], len(s.sends())), ("claimed", 1))
+
     def test_grace_send_goes_to_the_first_candidate_that_connects(self):
         with mock.patch.multiple(agents, GRACE_S=60):
             self.send()

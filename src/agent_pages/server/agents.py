@@ -275,7 +275,8 @@ def _register(lst: Listener) -> tuple["Listener | None", list[dict]]:
                 continue
             if rec.get("session") == s:
                 push.append(rec)
-            elif rec.get("session") is None and s in (rec.get("sessions") or []):  # waiting out the start grace
+            elif _waits_for_grace(rec) and s in (rec.get("sessions") or []):
+                rec.pop("grace", None)
                 rec.update(session=s, harness=reg["harness"], where=reg["where"], host=reg["host"])
                 _save(rec)
                 push.append(rec)
@@ -582,17 +583,42 @@ def _deliver(send_id: str, work) -> None:
     _mark_sent(rec, rec["started_at"])
 
 
+NO_AGENT = "no agent holds this session; start a new one"
+
+
+def _waits_for_grace(rec: dict) -> bool:
+    return rec.get("state") == "pending" and bool(rec.get("grace")) and rec.get("session") is None
+
+
 def after_grace() -> None:
-    """The start grace is over: route each send that waited for it and that no listener took meanwhile."""
+    """The start grace is over: route each send that still waits for it, as it is on disk now (a pi may have taken
+    it, or a newer send replaced it, since the listing). One that finds no route is stored as none, so the app
+    offers a new agent instead of showing it pending."""
     with _lock:
-        waiting = [r for r in _records() if r.get("state") == "pending" and r.get("grace") and r.get("session") is None]
-    for rec in waiting:
-        rec.pop("grace", None)
-        rec.update(route="", where="")
+        waiting = [r["id"] for r in _records() if _waits_for_grace(r)]
+    for send_id in waiting:
+        with _lock:
+            rec = _load(send_id)
+            if rec is None or not _waits_for_grace(rec):
+                continue
+            rec.pop("grace", None)
+            rec.update(route="", where="")
+            _save(rec)  # no pi connecting from here on binds it (_register binds grace sends only): _route decides
         try:
-            _route(rec)
+            out = _route(rec)
         except Exception as e:  # noqa: BLE001 - one bad record must not stop the others
-            print(f"agent-pages serve: send {rec['id']}: {e}", file=sys.stderr, flush=True)
+            print(f"agent-pages serve: send {send_id}: {e}", file=sys.stderr, flush=True)
+            out = {"route": "failed", "state": None, "error": str(e)[:2000]}
+        if out.get("state") is not None:
+            continue  # routed and stored
+        with _lock:  # none, or an error before anything stored it: never left pending
+            cur = _load(send_id)
+            if cur is not None and cur.get("state") == "pending" and cur.get("session") is None:
+                if out["route"] == "none":
+                    cur.update(state="none", route="none", error=NO_AGENT)
+                else:
+                    cur.update(state="failed", route="failed", error=out["error"])
+                _save(cur)
 
 
 # ---------- Paseo and pi session files ----------
