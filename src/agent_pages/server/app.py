@@ -37,6 +37,11 @@
   POST /api/lessons/<slug>/feedback  {"markdown": review export}: a revise job for the lesson's agent
   GET/POST /api/lessons/<slug>/review  answers, comments, notes of a lesson, shared by the web library and the phone
                                  (POST "at" as for /api/reviews)
+  POST /api/send                 {"page": <id>, "id": <send id>, "markdown": <export>, "new"?: true}: Send to agent;
+                                 answers at once with the route (live, pending, paseo, resuming, failed, none, new)
+  GET  /api/sends?page=<id>      the page's sends, newest first; GET /api/sends/<id>/markdown: a send's export
+  GET  /api/agents/listen?session&pid&host&harness&where   a pi's SSE stream (agent-pages-inbox extension)
+  POST /api/agents/claim/<id>, /release/<id>, /started/<id>; DELETE /api/agents/<session>   the same pi (agents.py)
 
 Every URL the UI uses is relative, so the app works at the server root and behind a path prefix.
 The settings come from the agent-pages config (host, port, roots, lessons_dir, vault, template_aliases).
@@ -58,7 +63,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .. import REPO, TEMPLATE_DIR
 from ..config import Config, ConfigError
-from . import jobs, library
+from . import agents, jobs, library
 from .theme import app_theme_css
 from .reports import ASSET_EXT, PAGE_EXT, Index, Site, hidden, page_kind
 
@@ -350,6 +355,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"items": items})
         if p == "/api/projects":
             return self._json({"projects": library.registry_projects()})
+        if p == "/api/agents/listen":
+            return agents.listen(self, parse_qs(url.query))
+        if p == "/api/sends":
+            return self._json({"sends": agents.sends_of(parse_qs(url.query).get("page", [""])[0])})
+        if p.startswith("/api/sends/") and p.endswith("/markdown"):
+            try:
+                md = agents.markdown(p[len("/api/sends/"):-len("/markdown")].strip("/"))
+            except KeyError:
+                return self._json({"error": "no such send"}, HTTPStatus.NOT_FOUND)
+            return self._send(md.encode("utf-8"), "text/markdown; charset=utf-8", "no-store")
         if p == "/api/theme.css":
             if self.theme is None:
                 return self.send_error(HTTPStatus.NOT_FOUND)
@@ -455,8 +470,31 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             return self._json({"error": f"could not write the page: {e.strerror or e}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
+    def _agents_post(self, p: str):
+        """POST /api/send (the app) and the claim, release and started calls of a pi's extension."""
+        if not self._same_origin():
+            return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
+        try:
+            if p == "/api/send":
+                return self._json(agents.send(self._body(2_000_000)))
+            action, _, sid = p[len("/api/agents/"):].partition("/")
+            fn = {"claim": agents.claim, "release": agents.release, "started": agents.started}.get(action)
+            if fn is None or not sid or "/" in sid:
+                return self.send_error(HTTPStatus.NOT_FOUND)
+            return self._json(fn(sid))
+        except KeyError:
+            return self._json({"error": "no such page" if p == "/api/send" else "no such send"}, HTTPStatus.NOT_FOUND)
+        except library.SharedKey as e:
+            return self._json({"error": str(e), "urls": getattr(e, "urls", [])}, HTTPStatus.CONFLICT)
+        except LookupError as e:
+            return self._json({"error": str(e).strip("'")}, HTTPStatus.CONFLICT)
+        except (agents.SendError, library.MetaError) as e:
+            return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+
     def do_POST(self):
         p = unquote(urlsplit(self.path).path)
+        if p == "/api/send" or p.startswith("/api/agents/"):
+            return self._agents_post(p)
         if p.startswith("/api/lessons/") and p.endswith("/feedback"):
             # the lesson page's review export (answers, comments, notes) -> a revise job for the agent
             if not self._same_origin():
@@ -519,6 +557,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         p = unquote(urlsplit(self.path).path)
+        if p.startswith("/api/agents/"):
+            if not self._same_origin():
+                return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
+            try:
+                agents.deregister(p[len("/api/agents/"):].strip("/"))
+            except agents.SendError as e:
+                return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+            return self._json({"ok": True})
         if not p.startswith("/api/inbox/"):
             return self.send_error(HTTPStatus.NOT_FOUND)
         if not self._same_origin():
@@ -536,6 +582,7 @@ def build(cfg: Config, host: str | None = None, port: int | None = None) -> tupl
     port = cfg.port if port is None else port
     library.configure(cfg.lessons_dir, cfg.vault)
     jobs.configure(library.DATA, f"http://{host}:{port}")
+    agents.configure(library.DATA, cfg.pages_dir, cfg.paseo)
     index = _scanned_index(cfg)
     site = index.site
     library.attach_pages(index)  # items.json is written by a PATCH only; lesson.json is read as it is
@@ -553,6 +600,7 @@ def serve(cfg: Config, args) -> None:
     library.LESSONS.mkdir(parents=True, exist_ok=True)
     library.DATA.mkdir(parents=True, exist_ok=True)
     jobs.start()
+    agents.start()
     threading.Thread(target=index.loop, daemon=True, name="page-index").start()
     host, port = srv.server_address[:2]
     roots = ", ".join(f"{k}={v}" for k, v in cfg.roots.items()) or "none"

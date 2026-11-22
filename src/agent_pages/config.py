@@ -7,6 +7,8 @@ See config.example.toml at the repo root for the keys and what they do.
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,9 +18,51 @@ from . import THEMES_DIR
 FIGURE_BACKENDS = ("texfig", "matplotlib", "none")
 KNOWN_KEYS = {
     "host", "port", "base_url", "roots", "lessons_dir", "theme", "lesson_theme", "app_theme",
-    "vim_default", "figure_backend", "texfig_dir", "vault", "remote_open", "template_aliases",
+    "vim_default", "figure_backend", "texfig_dir", "vault", "remote_open", "template_aliases", "pages_dir",
+    "harness",
 }
 REMOTE_OPEN_KEYS = {"queue", "mac_home", "log", "synced"}
+
+# Send to agent drives the Paseo CLI through these command lines: split like a shell would (shlex), then each
+# {placeholder} is filled inside its own argument, and the list runs with no shell. Placeholders per command:
+#   import   {session_file} (a pi session file the server found), {pages_dir}, {page} (the review id)
+#   send     {agent} (a Paseo agent id), {prompt_file} (the export, saved by the server)
+#   new      {cwd} (the page's folder), {page}, {prompt} (one line naming the page and the export file)
+#   inspect  {agent}
+# Every value is a validated UUID, a hex review id or a path the server chose; nothing comes from page HTML.
+PASEO_COMMANDS = {
+    "import": "paseo import --provider pi --cwd {pages_dir} --label agent-pages.page={page} --json {session_file}",
+    "send": "paseo send --no-wait --prompt-file {prompt_file} {agent}",
+    "new": "paseo run --background --json --provider pi --cwd {cwd} --label agent-pages.page={page} {prompt}",
+    "inspect": "paseo inspect --json {agent}",
+}
+PASEO_PLACEHOLDERS = {
+    "import": {"session_file", "pages_dir", "page"},
+    "send": {"agent", "prompt_file"},
+    "new": {"cwd", "page", "prompt"},
+    "inspect": {"agent"},
+}
+PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+def command_template(text: str, allowed: set[str], where: str) -> list[str]:
+    """A command line as an argv template: shlex-split, ~ expanded in each argument, placeholders checked."""
+    try:
+        argv = shlex.split(text)
+    except ValueError as e:
+        raise ConfigError(f"{where}: {e}") from e
+    if not argv:
+        raise ConfigError(f"{where} is empty")
+    for arg in argv:
+        unknown = set(PLACEHOLDER_RE.findall(arg)) - allowed
+        if unknown:
+            raise ConfigError(f"{where}: unknown placeholder {{{sorted(unknown)[0]}}}; this command knows "
+                              + ", ".join(f"{{{p}}}" for p in sorted(allowed)))
+    return [os.path.expanduser(a) if a.startswith("~") else a for a in argv]
+
+
+def default_paseo() -> dict[str, list[str]]:
+    return {k: command_template(v, PASEO_PLACEHOLDERS[k], f"harness.paseo.{k}") for k, v in PASEO_COMMANDS.items()}
 
 
 class ConfigError(Exception):
@@ -53,6 +97,8 @@ class Config:
     vault: Path | None = None
     template_aliases: list[Path] = field(default_factory=list)  # old template folders the server maps to template/
     remote_open: RemoteOpen = field(default_factory=RemoteOpen)
+    pages_dir: Path = field(default_factory=lambda: Path.home() / "pages")  # Paseo workspace of resumed sessions
+    paseo: dict[str, list[str]] = field(default_factory=default_paseo)  # Send to agent's Paseo command lines
 
     def theme_css(self, name: str | None = None) -> Path:
         """The stylesheet of a theme: a name from template/themes/ or a path to a .css file."""
@@ -163,6 +209,21 @@ def load(path: Path | None = None) -> Config:
         log=_path(ro, "log", "remote_open."),
         synced=[(Path(k).expanduser(), Path(v)) for k, v in synced.items()],
     )
+
+    cfg.pages_dir = _path(data, "pages_dir") or Path.home() / "pages"
+    harness = data.get("harness", {})
+    if not isinstance(harness, dict) or set(harness) - {"paseo"}:
+        raise ConfigError(f"{path}: harness must be a table with only [harness.paseo]")
+    paseo = harness.get("paseo", {})
+    if not isinstance(paseo, dict):
+        raise ConfigError(f"{path}: harness.paseo must be a table")
+    unknown = set(paseo) - set(PASEO_COMMANDS)
+    if unknown:
+        raise ConfigError(f"{path}: unknown keys in harness.paseo: {', '.join(sorted(unknown))}")
+    for k, v in paseo.items():
+        if not isinstance(v, str):
+            raise ConfigError(f"{path}: harness.paseo.{k} must be a command line string")
+        cfg.paseo[k] = command_template(v, PASEO_PLACEHOLDERS[k], f"{path}: harness.paseo.{k}")
     return cfg
 
 
@@ -183,6 +244,7 @@ def describe(cfg: Config) -> str:
         f"texfig_dir = {str(cfg.texfig_dir) if cfg.texfig_dir else ''!r}",
         f"vault = {str(cfg.vault) if cfg.vault else ''!r}",
         f"template_aliases = {[str(p) for p in cfg.template_aliases]!r}",
+        f"pages_dir = {str(cfg.pages_dir)!r}",
         "[roots]",
         *(f"{k} = {str(v)!r}" for k, v in cfg.roots.items()),
         "[remote_open]",
@@ -191,5 +253,7 @@ def describe(cfg: Config) -> str:
         f"log = {str(ro.log) if ro.log else ''!r}",
         "[remote_open.synced]",
         *(f"{str(a)!r} = {str(b)!r}" for a, b in ro.synced),
+        "[harness.paseo]",
+        *(f"{k} = {shlex.join(v)!r}" for k, v in cfg.paseo.items()),
     ]
     return "\n".join(lines)

@@ -97,6 +97,21 @@ class ConfigDefaults(TempHome):
             with self.assertRaises(config.ConfigError, msg=text):
                 config.load()
 
+    def test_send_to_agent_commands(self):
+        self.cfg_file.write_text('pages_dir = "~/p"\n[harness.paseo]\n'
+                                 'send = "~/bin/paseo send --prompt-file \'{prompt_file}\' --host \'a b\' {agent}"\n')
+        cfg = config.load()
+        self.assertEqual(cfg.pages_dir, Path.home() / "p")
+        self.assertEqual(cfg.paseo["send"], [str(Path.home() / "bin/paseo"), "send", "--prompt-file", "{prompt_file}",
+                                             "--host", "a b", "{agent}"])
+        self.assertEqual(cfg.paseo["import"][:2], ["paseo", "import"])  # the others keep their defaults
+        self.assertEqual(config.load(self.tmp / "none.toml").pages_dir, Path.home() / "pages")
+        for text in ('[harness.paseo]\nsend = "paseo send {prompt}"', '[harness.paseo]\nopen = "x"',
+                     '[harness.codex]\nsend = "x"', '[harness.paseo]\nsend = ""', '[harness.paseo]\nsend = "a \'b"'):
+            self.cfg_file.write_text(text)
+            with self.assertRaises(config.ConfigError, msg=text):
+                config.load()
+
     def test_unknown_theme(self):
         self.cfg_file.write_text('theme = "nope"')
         with self.assertRaises(config.ConfigError):

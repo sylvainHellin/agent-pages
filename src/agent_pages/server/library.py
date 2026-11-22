@@ -43,6 +43,7 @@ from pathlib import Path
 import yaml
 
 from .. import TEMPLATE_DIR
+from ..page import page_sessions
 from . import reports
 
 ASSETS = TEMPLATE_DIR  # shared page assets are code: the repo template, served at /lessons/_assets/
@@ -445,10 +446,14 @@ def _tutor_bases() -> list[tuple[dict, dict]]:
             continue
         meta = _lesson_json(d.name)
         mtime = page.stat().st_mtime
+        try:
+            sessions = page_sessions(page.read_text(encoding="utf-8", errors="replace")[:reports.KIND_HEAD])
+        except OSError:
+            sessions = []
         base = {
             "key": tutor_key(d.name), "url": f"/lessons/{d.name}/", "title": _title_from_html(page) or d.name,
             "path": _display(page), "mtime": mtime, "root": "lessons", "area": "lessons", "origin": "tutor",
-            "slug": d.name, "doc_id": d.name, "sessions": [], "created": str(meta.get("created") or d.name[:10]),
+            "slug": d.name, "doc_id": d.name, "sessions": sessions, "created": str(meta.get("created") or d.name[:10]),
             "counts": _count(page), "shared": [],
         }
         out.append((base, meta))
