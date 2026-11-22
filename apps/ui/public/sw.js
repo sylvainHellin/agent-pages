@@ -262,8 +262,8 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       if (e.request.mode !== 'navigate' || !s.notify || s.shell) return res
       return res.then(function (r) {
         if (r && r.status === 200) e.waitUntil(updateAuto(function (rec) {
-          if (!rec[s.key]) return false
-          delete rec[s.key]
+          if (!rec.pages[s.key]) return false
+          delete rec.pages[s.key]
         }).catch(function () {}))
         return r
       })
@@ -295,14 +295,22 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       return n > 0 ? Promise.resolve(n) : res.clone().blob().then(function (b) { return b.size })
     }
 
-    /* The pages auto saved that were not in the cache before, each with the files it added: {pageUrl: [fileUrl]}.
+    /* The record: pages, the pages auto saved that were not in the cache before, each with the files it added
+       ({pageUrl: [fileUrl]}); manual, the pages saved with Download ({pageUrl: 1}), which auto never takes back.
        Updates run one after the other; a change that returns false writes nothing. */
     var AUTO_KEY = new URL('.agent-pages-auto.json', scope).href
     var autoQueue = Promise.resolve()
     function readAuto() {
       return caches.open(SW.CACHES.meta).then(function (c) { return c.match(AUTO_KEY) })
-        .then(function (r) { return r ? r.text().then(function (t) { return JSON.parse(t) || {} }) : {} })
-        .catch(function () { return {} })
+        .then(function (r) { return r ? r.text().then(function (t) { return JSON.parse(t) }) : null })
+        .catch(function () { return null })
+        .then(function (r) {
+          r = r && typeof r === 'object' ? r : {}
+          if (r.pages && typeof r.pages === 'object') return { pages: r.pages, manual: r.manual || {} }
+          var pages = {} // the first layout, {pageUrl: [fileUrl]}
+          Object.keys(r).forEach(function (k) { if (Array.isArray(r[k])) pages[k] = r[k] })
+          return { pages: pages, manual: {} }
+        })
     }
     function updateAuto(change) {
       var job = autoQueue.then(function () {
@@ -363,7 +371,12 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
           return one(u.href, true).then(refs)
         })
       }, Promise.resolve()).then(function () {
-        return updateAuto(function (rec) { keys.forEach(function (k) { delete rec[k] }) }).catch(function () {})
+        return updateAuto(function (rec) {
+          keys.forEach(function (k) {
+            delete rec.pages[k]
+            rec.manual[k] = 1
+          })
+        }).catch(function () {})
       }).then(function () { return out })
     }
 
@@ -460,7 +473,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
                   return null
                 }
                 out.saved++
-                if (!hit || rec[s.key]) added[s.key] = []
+                if (!hit || rec.pages[s.key]) added[s.key] = []
                 return res.text()
               })
             })
@@ -473,7 +486,9 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
          files they added that no saved page uses; a page that could not be reached (out.failed) keeps its copy */
       function evict(rec) {
         var open = new Set(pages), over = new Set(out.notSaved), failed = new Set(out.failed)
-        var gone = Object.keys(rec).filter(function (u) { return !open.has(u) || (over.has(u) && !failed.has(u)) })
+        var gone = Object.keys(rec.pages).filter(function (u) {
+          return !rec.manual[u] && (!open.has(u) || (over.has(u) && !failed.has(u)))
+        })
         if (!gone.length) return Promise.resolve()
         return caches.open(SW.CACHES.pages).then(function (c) {
           return Promise.all(gone.map(function (u) { return c.delete(u) }))
@@ -497,8 +512,8 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
             .then(function (keep) {
               var drop = []
               gone.forEach(function (g) {
-                ;(rec[g] || []).forEach(function (f) { if (!keep.has(f) && drop.indexOf(f) < 0) drop.push(f) })
-                delete rec[g]
+                ;(rec.pages[g] || []).forEach(function (f) { if (!keep.has(f) && drop.indexOf(f) < 0) drop.push(f) })
+                delete rec.pages[g]
                 out.evicted.push(g)
               })
               return Promise.all(drop.map(function (f) { return c.delete(f) }))
@@ -519,9 +534,10 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       }).then(function () {
         return updateAuto(function (rec) {
           Object.keys(added).forEach(function (k) {
-            var had = rec[k] || []
+            if (rec.manual[k]) return // saved with Download meanwhile: the reader's
+            var had = rec.pages[k] || []
             added[k].forEach(function (f) { if (had.indexOf(f) < 0) had.push(f) })
-            rec[k] = had
+            rec.pages[k] = had
           })
           return evict(rec)
         })

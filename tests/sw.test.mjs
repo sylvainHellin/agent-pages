@@ -371,6 +371,26 @@ test('auto: a page it saved before that is still open but now past the budget is
   assert.equal(r.bytes, 108)
 })
 
+test('auto: a page saved with Download while a run is saving it stays the reader\'s (the run does not take it back)', async () => {
+  const files = { 'documents/a/d1.html': pageHtml('img/d1.png'), 'documents/a/img/d1.png': 'D', 'documents/a/d2.html': '<!doctype html>d2' }
+  const w = worker(files)
+  w.slow = true
+  const run = auto(w, ['documents/a/d1.html', 'documents/a/d2.html'])
+  const download = w.ask({ type: 'agent-pages:prefetch', urls: [SCOPE + 'documents/a/d1.html'] }) // during the run
+  await Promise.all([run, download])
+  const r = await auto(w, ['documents/a/other.html']) // d1 and d2 are done now
+  assert.deepEqual([...r.evicted].map((u) => u.slice(SCOPE.length)), ['documents/a/d2.html'])
+  assert.deepEqual(await pagesCached(w), ['documents/a/d1.html', 'documents/a/img/d1.png'])
+})
+
+test('auto: a record in the first layout ({pageUrl: [fileUrl]}) is read as the pages auto saved', async () => {
+  const w = worker({})
+  await w.put(SW.CACHES.pages, SCOPE + 'documents/a/old.html', '<!doctype html>old', '"o"')
+  await w.put(SW.CACHES.meta, SCOPE + '.agent-pages-auto.json', JSON.stringify({ [SCOPE + 'documents/a/old.html']: [] }), null, 'application/json')
+  const r = await auto(w, ['documents/a/other.html'])
+  assert.deepEqual([...r.evicted].map((u) => u.slice(SCOPE.length)), ['documents/a/old.html'])
+})
+
 test('auto: a page no longer open is evicted when it was auto-downloaded; one saved with Download or opened stays', async () => {
   const files = {
     '_template/report.css': 'body{}',
