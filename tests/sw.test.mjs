@@ -97,6 +97,22 @@ test('refsOf: the same-origin files a page loads, not the pages it links', () =>
   ])
 })
 
+test('refsOf: tags written inside a script are not references (the app shell writes its theme link from JS)', () => {
+  const inline = `<head><script>
+  var base = './'
+  document.write('<link rel="stylesheet" id="app-theme-css" href="' + base + 'api/theme.css">')
+  var s = "<script src='x.js'><\\/script>"
+</script><script type="module" crossorigin src="./assets/index-ABC.js"></script>
+<link rel="stylesheet" crossorigin href="./assets/index-DEF.css"></head>`
+  const real = readFileSync(new URL('../apps/ui/index.html', import.meta.url), 'utf8')
+  for (const html of [inline, real]) {
+    const got = SW.refsOf(html, SCOPE)
+    for (const u of got) assert.ok(!/'|%20\+%20|%27/.test(u), u)
+  }
+  const got = Array.from(SW.refsOf(inline, SCOPE), (u) => u.slice(SCOPE.length)).sort()
+  assert.deepEqual(got, ['assets/index-ABC.js', 'assets/index-DEF.css'])
+})
+
 test('cssRefs: url() files relative to the stylesheet, data: skipped', () => {
   const css = `@font-face{src:url("fonts/serif-kr.woff2") format("woff2")} .a{background:url(data:image/svg+xml,%3Csvg%3E)}
   .b{background:url('../img/x.png')} @import url("themes/tum.css");`

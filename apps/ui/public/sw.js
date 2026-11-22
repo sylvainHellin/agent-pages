@@ -86,9 +86,11 @@ var AgentPagesSW = (function () {
     if (list.indexOf(u.href) < 0) list.push(u.href)
   }
 
-  /* The same-origin files a page loads (stylesheets, scripts, icons, the manifest, images, posters), not the pages it links. */
+  /* The same-origin files a page loads (stylesheets, scripts, icons, the manifest, images, posters), not the pages it links.
+     Tags inside a script's text or a comment are not loaded as such (the app shell writes its theme link from JS). */
   function refsOf(html, base) {
     var out = [], m, re = /<(link|script|img|source|video|input)\b[^>]*>/gi
+    html = String(html).replace(/(<script\b[^>]*>)[\s\S]*?<\/script\s*>/gi, '$1</script>').replace(/<!--[\s\S]*?-->/g, '')
     while ((m = re.exec(html))) {
       var tag = m[1].toLowerCase(), a = attrs(m[0])
       if (tag === 'link') {
@@ -203,17 +205,22 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       })
     }
 
-    /* The files a new shell names, cached before the shell itself, so the new version also works offline. */
+    /* The files a new shell names, cached before the shell itself, so the new version also works offline.
+       Only a hashed asset (cache-first) the new build needs and cannot get fails the update; the rest is best effort. */
     function cacheShellFiles(shellUrl, html) {
       return Promise.all(SW.refsOf(html, shellUrl).map(function (u) {
         var s = SW.strategy({ url: u, method: 'GET' }, scope)
         if (s.kind === 'network') return true
-        return lookup(s).then(function (hit) {
+        var job = lookup(s).then(function (hit) {
           return hit || fetch(u).then(function (res) {
             if (!cacheable(res)) throw new Error('could not cache ' + u)
-            return store(s, res)
+            return store(s, res).then(function (ok) {
+              if (!ok) throw new Error('could not cache ' + u)
+              return true
+            })
           })
         })
+        return s.kind === 'cache-first' ? job : job.catch(function () { return false })
       }))
     }
 
