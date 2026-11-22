@@ -4,7 +4,8 @@
    The status button opens the details dialog (status, tags, projects; PATCH api/items/<id>); the lesson tag writes the
    lesson marker into the page file, and the page goes on to the lesson reader (#/l/<slug>), as does a #/r/ link to a
    page that already has the tag.
-   "Download for offline" saves the page with its template files and images in the service worker's cache. */
+   "Download for offline" saves the page with its template files and images in the service worker's cache; the phone's bar has
+   no room for it, and opening a page there saves it with everything it loaded anyway. */
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUpRightIcon, ChevronLeftIcon, CloudDownloadIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -56,7 +57,7 @@ a.bn-btn { text-decoration: none; }
 .bn-app-status { gap: .4rem; font-size: .8rem; }
 .bn-app-status .bn-app-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; box-sizing: border-box; }
 .bn-app-tags { gap: .25rem; font-size: .75rem; color: var(--muted); }
-@media (max-width: 720px) { .bn-app-back { margin-left: -.35rem; } .bn-app-alone, .bn-app-sep { display: none; } }
+@media (max-width: 720px) { .bn-app-back { margin-left: -.35rem; } .bn-app-alone, .bn-app-sep, .bn-app-download { display: none; } }
 `
 
 interface BarActions {

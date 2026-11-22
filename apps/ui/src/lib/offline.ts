@@ -142,11 +142,9 @@ export function startOffline(): void {
       { once: true },
     )
   }
+  if (!first) refreshSaved() // before register(), which fails offline (it fetches sw.js to look for a new one)
   navigator.serviceWorker
     .register(rootUrl('sw.js'), { scope: APP_ROOT.href })
-    .then(() => {
-      if (!first) refreshSaved()
-      navigator.storage?.persist?.().catch(() => {}) // WebKit keeps a Home Screen app's storage when asked
-    })
-    .catch((e) => console.warn('agent-pages: no offline worker:', e))
+    .then(() => navigator.storage?.persist?.().catch(() => {})) // WebKit keeps a Home Screen app's storage when asked
+    .catch((e) => first && console.warn('agent-pages: no offline worker:', e))
 }
