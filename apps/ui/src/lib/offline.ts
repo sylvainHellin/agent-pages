@@ -76,6 +76,12 @@ const runAuto = autoSaver({
   now: () => Date.now(),
   toUrl: (u) => rootUrl(u.replace(/^\//, '')),
   ask: (msg) => ask<AutoResult>(msg, 30 * 60_000),
+  /* the worker's last progress message may never come (it was stopped mid-run, or the run was busy or failed) */
+  settled: () => {
+    if (!saving) return
+    saving = null
+    emit()
+  },
 })
 let shownNotSaved = 0
 

@@ -91,6 +91,23 @@ test('one run at a time', async () => {
   assert.equal(asked.length, 1)
 })
 
+test('settled runs after every answer, a busy or failed one too, and when the worker never answers (the badge clears)', async () => {
+  let settled = 0
+  const answers = [{ busy: true }, { error: 'x' }, { notSaved: [] }]
+  const run = autoSaver({
+    enabled: () => true, online: () => true, now: () => 0, toUrl: (u) => u, settled: () => settled++,
+    ask: async () => { const a = answers.shift(); if (!a) throw new Error('The offline worker did not answer'); return a },
+  })
+  for (let i = 1; i <= 3; i++) {
+    await run(items, 'load')
+    assert.equal(settled, i)
+  }
+  await assert.rejects(run(items, 'load'))
+  assert.equal(settled, 4)
+  await run([], 'load') // nothing asked: nothing to clear
+  assert.equal(settled, 4)
+})
+
 test('the pages left out by the budget that are still on the device (opened, or saved with Download) are not counted', () => {
   const out = ['https://box.ts.net/documents/a/x.html', 'https://box.ts.net/documents/a/opened.html', 'https://box.ts.net/lessons/l/']
   assert.equal(notSavedCount(out, new Set(['/documents/a/opened.html', '/documents/a/other.html'])), 2)

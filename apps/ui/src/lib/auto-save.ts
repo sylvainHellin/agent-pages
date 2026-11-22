@@ -31,6 +31,8 @@ export interface AutoDeps {
   /** a server path (/documents/x.html) to its full URL */
   toUrl(path: string): string
   ask(msg: { type: 'agent-pages:auto'; urls: string[]; budget: number }): Promise<AutoResult>
+  /** after the worker answered or the ask failed (busy, error, timeout too): offline.ts clears its progress badge */
+  settled?(): void
 }
 
 type Listed = { url: string; status: string; changed: number }
@@ -54,6 +56,7 @@ export function autoSaver(deps: AutoDeps) {
       return await deps.ask({ type: 'agent-pages:auto', urls, budget: AUTO_BUDGET })
     } finally {
       running = false
+      deps.settled?.()
     }
   }
 }
