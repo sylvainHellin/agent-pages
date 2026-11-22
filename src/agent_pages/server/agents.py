@@ -76,6 +76,7 @@ HOST = socket.gethostname()
 
 _lock = threading.RLock()
 _live: dict[str, "Listener"] = {}
+_inflight: set[str] = set()  # send ids being routed: a repeat meanwhile is refused, never routed twice
 
 
 class SendError(ValueError):
@@ -472,7 +473,8 @@ def sends_of(rid: str) -> list[dict]:
 
 def send(body) -> dict:
     """Store a send and route it. SendError: a bad body; KeyError: no such page; library.SharedKey: the page's
-    data-doc-id is shared. A send id seen before answers with that send."""
+    data-doc-id is shared; LookupError: the same id is being routed right now. A send id stored before answers with
+    that send."""
     if not isinstance(body, dict):
         raise SendError("the body must be a JSON object")
     rid, send_id, md = body.get("page"), body.get("id"), body.get("markdown")
@@ -489,6 +491,17 @@ def send(body) -> dict:
         known = _load(send_id)
         if known is not None:
             return summary(known)
+        if send_id in _inflight:
+            raise LookupError(f"send {send_id} is being routed: ask again for its state")
+        _inflight.add(send_id)
+    try:
+        return _send(rid, send_id, md, new)
+    finally:
+        with _lock:
+            _inflight.discard(send_id)
+
+
+def _send(rid: str, send_id: str, md: str, new: bool) -> dict:
     item = library.get_item(rid)
     if item is None:
         raise KeyError(rid)

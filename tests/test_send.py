@@ -610,6 +610,25 @@ class SendToAgent(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/agents/claim/send-0001")[0], 409)
         self.assertEqual(self.req("POST", "/api/agents/claim/send-0002")[0], 200)
 
+    def test_a_repeat_while_the_first_is_routed_is_not_routed_again(self):
+        s = self.listen(S_NEW)
+        route = agents._route
+
+        def slow(rec, md=None):
+            time.sleep(0.3)
+            return route(rec, md)
+        answers: list[tuple[int, dict]] = []
+        with mock.patch.object(agents, "_route", slow):
+            threads = [threading.Thread(target=lambda: answers.append(self.send())) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        time.sleep(0.2)
+        self.assertEqual(len(s.sends()), 1)
+        self.assertEqual(sorted(code for code, _ in answers), [200, 409])
+        self.assertEqual(self.send(), (200, self.record()))  # stored now: the repeat gets its summary
+
     def test_bad_bodies(self):
         self.assertEqual(self.req("POST", "/api/send", {"page": RID, "id": "send-0001", "markdown": ""})[0], 400)
         self.assertEqual(self.req("POST", "/api/send", {"page": RID, "id": "send-0001", "markdown": "x" * 600_001})[0], 400)
