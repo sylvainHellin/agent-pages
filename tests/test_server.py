@@ -11,6 +11,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -508,31 +509,64 @@ class ServerRoutes(unittest.TestCase):
         self.assertEqual(self.get(f"/api/lessons/{SLUG}/opened", b"{}", {"Content-Type": "application/json"})[0], 404)
         self.assertNotIn("lesson", reports.page_kind((self.home / "docs" / "area" / "plain.html").read_text()))
 
-    def test_migration_maps_old_statuses_and_keeps_pages_json(self):
+    def test_older_stores_read_as_a_fallback_and_never_written(self):
         data = self.cfg.lessons_dir / "_data"
-        (data / "items.json").unlink()  # written at start-up from nothing
+        data.mkdir(parents=True, exist_ok=True)
         old = {INPLACE_URL: {"status": "understood", "tags": ["Lesson", "Deep  Dive"], "title": "Own"},
-               "/documents/area/plain.html": {"status": "archived"},
-               "/documents/area/gone.html": {"status": "learning"}}
+               "/documents/area/plain.html": {"status": "archived", "tags": ["old"]}}
         raw = json.dumps(old, indent=2).encode()
         (data / "pages.json").write_bytes(raw)
-        (self.cfg.lessons_dir / SLUG / "lesson.json").write_text(json.dumps(
-            {"title": "A lesson", "status": "learning", "tags": ["sql"], "projects": []}))
-        built = library.migrate_items()
-        self.assertEqual(built["2026-03-04_how-it-works"]["status"], "done")  # URL -> its data-doc-id
-        self.assertEqual(built["2026-03-04_how-it-works"]["tags"], ["deep dive"])  # lesson is the file's marker
-        self.assertEqual(built["2026-03-04_how-it-works"]["title"], "Own")
-        self.assertEqual(built["/documents/area/plain.html"]["status"], "archived")
-        self.assertEqual(built["/documents/area/gone.html"]["status"], "open")  # kept, keyed by its old URL
-        self.assertEqual((built[SLUG]["status"], built[SLUG]["tags"]), ("open", ["sql"]))
-        self.assertEqual(self.stored(), built)
-        self.assertEqual((data / "pages.json").read_bytes(), raw)
-        self.assertIsNone(library.migrate_items())  # once: an existing items.json is never rebuilt
+        lesson_raw = json.dumps({"title": "A lesson", "status": "learning", "tags": ["sql"], "projects": []})
+        (self.cfg.lessons_dir / SLUG / "lesson.json").write_text(lesson_raw)
         items = self.items()
-        self.assertEqual((items[INPLACE_URL]["status"], items[INPLACE_URL]["title"]), ("done", "Own"))
-        self.assertEqual(sorted(items[INPLACE_URL]["tags"]), ["deep dive", "lesson"])
-        self.assertEqual(items[f"/lessons/{SLUG}/"]["tags"], ["sql", "lesson"])
+        self.assertEqual((items[INPLACE_URL]["status"], items[INPLACE_URL]["title"]), ("done", "Own"))  # URL -> the page
+        self.assertEqual(sorted(items[INPLACE_URL]["tags"]), ["deep dive", "lesson"])  # lesson is the file's marker
+        self.assertEqual((items["/documents/area/plain.html"]["status"], items["/documents/area/plain.html"]["tags"]),
+                         ("archived", ["old"]))
+        self.assertEqual((items[f"/lessons/{SLUG}/"]["status"], items[f"/lessons/{SLUG}/"]["tags"]), ("open", ["sql", "lesson"]))
+        self.assertFalse((data / "items.json").exists())  # reading writes nothing
+        # a PATCH stores only what it sets; the other fields still come from the older store
+        status, r = self.patch(items["/documents/area/plain.html"]["id"], {"tags": ["new"]})
+        self.assertEqual((status, r["status"], r["tags"]), (200, "archived", ["new"]))
+        self.assertEqual(set(self.stored()), {"/documents/area/plain.html"})
         self.assertEqual((data / "pages.json").read_bytes(), raw)
+        self.assertEqual((self.cfg.lessons_dir / SLUG / "lesson.json").read_text(), lesson_raw)
+
+    def test_start_writes_no_items_json(self):
+        data = self.cfg.lessons_dir / "_data"
+        data.mkdir(parents=True, exist_ok=True)
+        (data / "pages.json").write_text(json.dumps({"/documents/area/plain.html": {"status": "done"}}))
+        srv, _ = app.build(self.cfg, "127.0.0.1", 0)
+        srv.server_close()
+        self.items()
+        self.assertFalse((data / "items.json").exists())
+
+    def tutor_item(self) -> dict:
+        return self.items()[f"/lessons/{SLUG}/"]
+
+    def write_lesson_json(self, meta: dict, ahead: float = 5) -> None:
+        """lesson.json as the tutor skill writes it, its mtime `ahead` seconds from now."""
+        path = self.cfg.lessons_dir / SLUG / "lesson.json"
+        path.write_text(json.dumps(meta))
+        t = time.time() + ahead
+        os.utime(path, (t, t))
+
+    def test_tutor_edit_of_lesson_json_after_start_wins(self):
+        self.write_lesson_json({"title": "A lesson", "status": "learning", "tags": ["sql"]}, ahead=-100)
+        self.assertEqual(self.tutor_item()["status"], "open")
+        self.write_lesson_json({"title": "Renamed", "status": "understood", "tags": ["sql"], "summary": "S"})
+        item = self.tutor_item()
+        self.assertEqual((item["status"], item["title"], item["summary"]), ("done", "Renamed", "S"))
+
+    def test_lesson_json_newer_than_a_patch_wins_for_the_fields_it_changed(self):
+        self.write_lesson_json({"title": "A lesson", "status": "learning", "tags": ["sql"]}, ahead=-100)
+        status, r = self.patch(self.tutor_item()["id"], {"status": "archived", "tags": ["mine"]})
+        self.assertEqual((status, r["status"], r["tags"]), (200, "archived", ["mine", "lesson"]))
+        self.write_lesson_json({"title": "A lesson", "status": "understood", "tags": ["sql"]})  # the tutor: understood
+        item = self.tutor_item()
+        self.assertEqual((item["status"], item["tags"]), ("done", ["mine", "lesson"]))  # its unchanged tags do not undo the PATCH
+        status, r = self.patch(item["id"], {"status": "open"})
+        self.assertEqual((status, r["status"]), (200, "open"))  # a later PATCH wins again
 
     def test_status_and_tags_survive_a_move(self):
         self.write_page("area/ided.html", REVIEW_PAGE.format(id="moving"))
@@ -555,8 +589,10 @@ class ServerRoutes(unittest.TestCase):
         items = self.items()
         self.assertEqual(items["/documents/area/ided.html"]["status"], "open")
         self.assertEqual(items["/documents/area/other-ided.html"]["status"], "sent")
-        self.assertEqual(self.stored()["sent-one"]["status"], "open")  # persisted
+        self.assertEqual(self.stored()["sent-one"]["status"], "sent")  # worked out on reading, not written
         self.assertEqual(self.stored()["sent-two"]["status"], "sent")
+        rid = items["/documents/area/ided.html"]["id"]
+        self.assertEqual(self.patch(rid, {"tags": ["x"]})[1]["status"], "open")
 
     def test_lesson_tag_toggles_the_marker(self):
         page = self.home / "docs" / "area" / "plain.html"
@@ -578,7 +614,7 @@ class ServerRoutes(unittest.TestCase):
 
     def test_tutor_lesson_keeps_lesson_tag_and_lesson_json(self):
         before = (self.cfg.lessons_dir / SLUG / "lesson.json").read_text()
-        rid = reports.review_id(SLUG)
+        rid = self.items()[f"/lessons/{SLUG}/"]["id"]
         status, r = self.patch(rid, {"status": "archived", "tags": ["sql"], "topic": "Databases"})
         self.assertEqual(status, 200, r)
         self.assertEqual((r["status"], r["tags"], r["topic"]), ("archived", ["sql", "lesson"], "Databases"))

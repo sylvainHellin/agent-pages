@@ -516,8 +516,7 @@ def build(cfg: Config, host: str | None = None, port: int | None = None) -> tupl
     site = Site(cfg.roots, TEMPLATE_DIR, cfg.template_aliases, exclude=[cfg.lessons_dir])
     index = Index(site)
     index.scan()
-    library.attach_pages(index)
-    library.migrate_items()  # once: items.json from the older pages.json and lesson.json statuses
+    library.attach_pages(index)  # items.json is written by a PATCH only; pages.json and lesson.json are read as they are
     try:
         theme = cfg.theme_css(cfg.app_theme)
     except ConfigError as e:  # the app keeps its own look

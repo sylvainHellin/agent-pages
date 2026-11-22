@@ -14,10 +14,15 @@ Where the pages come from:
                 always carry the tag "lesson"
 
 What the reader sets lives in <lessons>/_data/items.json, keyed by the page's storage key (reports.review_key: its
-data-doc-id, else its URL; a tutor lesson's slug): {status, tags, projects, topic, summary, title?, sent_at?, updated}.
-A page that keeps its data-doc-id keeps its status and tags through a move. Statuses are open (the default), sent,
-done and archived; a sent page whose file changed after sent_at is open again. items.json is built once from the
-older stores (migrate_items): _data/pages.json, URL-keyed, and the statuses in lesson.json, which stay as they were.
+data-doc-id, else its URL; a tutor lesson's slug): {status, tags, projects, topic, summary, title?, sent_at?,
+updated, lesson?}. A page that keeps its data-doc-id keeps its status and tags through a move. Statuses are open (the
+default), sent, done and archived; a sent page whose file changed after sent_at is listed as open again.
+
+items.json is written only by a PATCH and by mark_sent, with the fields they set. A field it lacks comes from the
+older stores, read on every listing and never written: _data/pages.json (URL-keyed) for a page under a root, and
+lesson.json for a tutor lesson, whose status open|done|archived (learning and understood still read as open and
+done) the tutor skill sets. A lesson.json newer than the stored entry's `updated` wins for a field whose value it
+changed since that PATCH (`lesson` keeps the values lesson.json had then), so the tutor's later edits show.
 """
 
 from __future__ import annotations
@@ -44,7 +49,7 @@ CLOSED = {"done", "archived", "completed", "cancelled", "dropped"}
 SLUG_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_[a-z0-9][a-z0-9-]{0,80}$")
 INPLACE_RE = re.compile(r"^page-[0-9a-f]{12}$")
 DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})")
-PAGES_META = DATA / "pages.json"  # the older store of the marked pages, URL-keyed: read once by migrate_items()
+PAGES_META = DATA / "pages.json"  # the older store of the marked pages, URL-keyed: a read-only fallback
 ITEMS = DATA / "items.json"
 STATUSES = ("open", "sent", "done", "archived")
 SETTABLE = ("open", "done", "archived")  # sent is set by Send to agent (mark_sent), never by PATCH
@@ -191,10 +196,10 @@ def read_meta(slug: str) -> dict | None:
         return None
     if INPLACE_RE.match(slug):
         e = _inplace(slug)
-        stored = _items().get(reports.review_key(e.get("doc_id"), e["url"])) or {}
-        return {"slug": slug, "title": stored.get("title") or e["title"], "url": e["url"]}
-    stored = _items().get(slug) or {}
-    return {"slug": slug, "title": stored.get("title") or _lesson_json(slug).get("title") or _title_from_html(page) or slug}
+        entry = _report_entry(reports.review_key(e.get("doc_id"), e["url"]), e["url"], _items(), _old_pages())
+        return {"slug": slug, "title": entry.get("title") or e["title"], "url": e["url"]}
+    entry = _tutor_entry(slug, _items(), _lesson_json(slug), _lesson_mtime(slug))
+    return {"slug": slug, "title": entry.get("title") or _title_from_html(page) or slug}
 
 
 # ---------- the store: <lessons>/_data/items.json ----------
@@ -241,67 +246,90 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 def _items() -> dict:
-    """The stored entries by key; built from the older stores the first time, once the page index is attached."""
+    """The stored entries by key ({} while nothing has been set)."""
     with _lock:
-        data = _read_items(ITEMS)
-        if data is None:
-            data = migrate_items() if _pages is not None else None
-        return data or {}
+        return _read_items(ITEMS) or {}
 
 
-def _old_entry(old: dict, tutor: bool) -> dict:
-    """An entry of pages.json or a lesson.json as an items.json entry."""
-    entry = {"status": _status(old.get("status"))}
-    tags = [t for t in norm_tags(old.get("tags") if isinstance(old.get("tags"), list) else []) if t != LESSON_TAG]
-    if tags:
-        entry["tags"] = tags
-    projects = old.get("projects")
-    if isinstance(projects, list) and projects:
-        entry["projects"] = [str(p) for p in projects]
-    if not tutor:  # a tutor lesson's title, topic and summary stay in its lesson.json
-        for k in ("title", "topic", "summary"):
-            if isinstance(old.get(k), str) and old[k].strip():
-                entry[k] = old[k]
-    entry["updated"] = 0
+def _old_pages() -> dict:
+    """The older store of the pages under the roots, URL-keyed; read, never written."""
+    return _read_items(PAGES_META) or {}
+
+
+def _lesson_mtime(slug: str) -> float:
+    try:
+        return (LESSONS / slug / "lesson.json").stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _old_fields(old) -> dict:
+    """The fields an entry of pages.json or a lesson.json gives, as items.json holds them."""
+    if not isinstance(old, dict):
+        return {}
+    entry = {}
+    if "status" in old:
+        entry["status"] = _status(old["status"])
+    if isinstance(old.get("tags"), list):
+        entry["tags"] = [t for t in norm_tags(old["tags"]) if t != LESSON_TAG]
+    if isinstance(old.get("projects"), list):
+        entry["projects"] = [str(p) for p in old["projects"]]
+    for k in ("title", "topic", "summary"):
+        if isinstance(old.get(k), str) and old[k].strip():
+            entry[k] = old[k]
     return entry
 
 
-def migrate_items(data_dir: Path | None = None, lessons_dir: Path | None = None, index=None) -> dict | None:
-    """Build items.json from _data/pages.json (URL-keyed; each URL mapped to the key of the page now at that URL,
-    else kept as the key) and the statuses, tags and projects of the tutor lessons' lesson.json. Neither old file
-    is changed, so deleting items.json undoes it. None, and nothing written, when items.json exists already."""
-    data_dir = Path(data_dir) if data_dir else DATA
-    lessons_dir = Path(lessons_dir) if lessons_dir else LESSONS
-    index = index if index is not None else _pages
-    target = data_dir / "items.json"
-    with _lock:
-        if target.exists():
-            return None
-        keys = {e["url"]: e["key"] for e in (index.all_entries() if index is not None else [])}
-        old = _read_items(data_dir / "pages.json") or {}
-        items: dict[str, dict] = {}
-        for url, entry in old.items():
-            if isinstance(entry, dict):
-                items[keys.get(url, url)] = _old_entry(entry, tutor=False)
-        if lessons_dir.is_dir():
-            for d in sorted(lessons_dir.iterdir()):
-                if d.is_dir() and SLUG_RE.match(d.name) and (d / "index.html").is_file():
-                    try:
-                        meta = json.loads((d / "lesson.json").read_text())
-                    except (OSError, ValueError):
-                        meta = {}
-                    items[d.name] = _old_entry(meta if isinstance(meta, dict) else {}, tutor=True)
-        _write_json(target, items)
-        return items
+def _report_entry(key: str, url: str, items: dict, old: dict) -> dict:
+    """A page's fields: what items.json stores for its key over its entry in pages.json (by its URL, else its key)."""
+    return {**_old_fields(old.get(url) or old.get(key)), **(items.get(key) or {})}
+
+
+def _tutor_entry(slug: str, items: dict, meta: dict, mtime: float) -> dict:
+    """A tutor lesson's fields: lesson.json, under what items.json stores for it. A lesson.json written after the
+    stored entry wins for each field whose value differs from the one it had when that field was stored."""
+    stored = items.get(slug) or {}
+    lesson = _old_fields(meta)
+    seen = stored.get("lesson") if isinstance(stored.get("lesson"), dict) else {}
+    out = {**lesson, **stored}
+    if mtime > float(stored.get("updated") or 0):
+        for k, v in lesson.items():
+            if k in stored and (k not in seen or seen[k] != v):
+                out[k] = v
+                if k == "status":
+                    out.pop("sent_at", None)
+    return out
+
+
+def _store(items: dict, item: dict, patch: dict, now: float) -> dict:
+    """Merge `patch` into the stored entry of a listed page; for a tutor lesson, remember what lesson.json said."""
+    entry = items.setdefault(item["key"], {})
+    entry.update(patch)
+    if entry.get("status") != "sent":
+        entry.pop("sent_at", None)
+    if item["origin"] == "tutor":
+        lesson = _old_fields(_lesson_json(item["slug"]))
+        seen = entry.setdefault("lesson", {})
+        for k in patch:
+            if k in lesson:
+                seen[k] = lesson[k]
+            else:
+                seen.pop(k, None)
+        if not seen:
+            entry.pop("lesson")
+    entry["updated"] = now
+    return entry
 
 
 def mark_sent(key: str, at: float | None = None) -> dict:
     """Status sent from now (Send to agent); the page is open again once its file changes after `at`."""
+    item = next((i for i in list_items() if i["key"] == key), None)
     with _lock:
         items = _items()
-        entry = items.setdefault(key, {})
         now = time.time()
-        entry.update(status="sent", sent_at=now if at is None else at, updated=now)
+        patch = {"status": "sent", "sent_at": now if at is None else at}
+        entry = _store(items, item, patch, now) if item else items.setdefault(key, {})
+        entry.update(patch, updated=now)
         _write_json(ITEMS, items)
         return entry
 
@@ -322,25 +350,29 @@ def _display(path: Path) -> str:
         return path.as_posix()
 
 
-def _item(base: dict, stored: dict, fallback: dict, lesson: bool, known: set[str]) -> dict:
-    """One row of the list: the page's own fields, then what is stored for its key, then the fallback (lesson.json)."""
-    pick = lambda k, d: stored[k] if k in stored else fallback.get(k, d)  # noqa: E731
-    tags = [t for t in norm_tags(pick("tags", [])) if t != LESSON_TAG] + ([LESSON_TAG] if lesson else [])
-    projects = [str(p) for p in pick("projects", []) or []]
+def _item(base: dict, entry: dict, lesson: bool, known: set[str]) -> dict:
+    """One row of the list: the page's own fields under its entry (_report_entry, _tutor_entry). A sent page whose
+    file is newer than its sent_at is listed as open."""
+    tags = [t for t in norm_tags(entry.get("tags") or []) if t != LESSON_TAG] + ([LESSON_TAG] if lesson else [])
+    projects = [str(p) for p in entry.get("projects") or []]
     item = {
         **base,
         "id": reports.review_id(base["key"]),
-        "title": stored.get("title") or fallback.get("title") or base["title"],
-        "status": _status(pick("status", "open")),
+        "title": entry.get("title") or base["title"],
+        "status": _status(entry.get("status")),
         "tags": tags,
         "projects": projects,
         "unknown_projects": [p for p in projects if p not in known],
-        "topic": str(pick("topic", "") or ""),
-        "summary": str(pick("summary", "") or ""),
+        "topic": str(entry.get("topic") or ""),
+        "summary": str(entry.get("summary") or ""),
     }
-    if stored.get("sent_at") and item["status"] == "sent":
-        item["sent_at"] = stored["sent_at"]
-    item["changed"] = max(item["mtime"], float(stored.get("updated") or 0))
+    if item["status"] == "sent":
+        sent_at = float(entry.get("sent_at") or 0)
+        if base["mtime"] > sent_at:
+            item["status"] = "open"
+        else:
+            item["sent_at"] = sent_at
+    item["changed"] = max(item["mtime"], float(entry.get("updated") or 0))
     return item
 
 
@@ -377,26 +409,14 @@ def _page_bases() -> list[dict]:
 
 
 def list_items() -> list[dict]:
-    """Every page, newest change first. A sent page whose file is newer than its sent_at is open again (stored)."""
+    """Every page, newest change first; reads the stores and writes nothing."""
     known = project_ids()
     with _lock:
-        items = _items()
-        out, reopened = [], False
-        for base in _page_bases():
-            stored = items.get(base["key"]) or {}
-            out.append(_item(base, stored, {}, base["slug"] is not None, known))
+        items, old = _items(), _old_pages()
+        out = [_item(b, _report_entry(b["key"], b["url"], items, old), b["slug"] is not None, known) for b in _page_bases()]
         for base, meta in _tutor_bases():
-            out.append(_item(base, items.get(base["key"]) or {}, meta, True, known))
-        for it in out:
-            stored = items.get(it["key"])
-            if stored and stored.get("status") == "sent" and it["mtime"] > float(stored.get("sent_at") or 0):
-                stored.update(status="open", updated=time.time())
-                stored.pop("sent_at", None)
-                it.update(status="open", changed=max(it["changed"], stored["updated"]))
-                it.pop("sent_at", None)
-                reopened = True
-        if reopened:
-            _write_json(ITEMS, items)
+            entry = _tutor_entry(base["slug"], items, meta, _lesson_mtime(base["slug"]))
+            out.append(_item(base, entry, True, known))
     out.sort(key=lambda i: i["changed"], reverse=True)
     return out
 
@@ -444,7 +464,7 @@ def update_item(rid: str, patch: dict) -> dict:
         raise KeyError(rid)
     patch = _check(patch)
     if item["shared"]:
-        raise SharedKey(f"data-doc-id {item['key']!r} is used by several pages: {', '.join([item['url'], *item['shared']])}")
+        raise _shared(item)
     if "tags" in patch:
         wants = LESSON_TAG in patch["tags"]
         patch["tags"] = [t for t in patch["tags"] if t != LESSON_TAG]
@@ -452,13 +472,13 @@ def update_item(rid: str, patch: dict) -> dict:
             _set_marker(item["url"], "lesson" if wants else "report")
     with _lock:
         items = _items()
-        entry = items.setdefault(item["key"], {})
-        entry.update(patch)
-        if entry.get("status") != "sent":
-            entry.pop("sent_at", None)
-        entry["updated"] = time.time()
+        _store(items, item, patch, time.time())
         _write_json(ITEMS, items)
     return get_item(rid)
+
+
+def _shared(item: dict) -> SharedKey:
+    return SharedKey(f"data-doc-id {item['key']!r} is used by several pages: {', '.join([item['url'], *item['shared']])}")
 
 
 def _set_marker(url: str, kind: str) -> None:
