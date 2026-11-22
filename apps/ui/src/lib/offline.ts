@@ -32,21 +32,27 @@ export const useSavedPages = () => useSyncExternalStore(subscribe, savedSnapshot
 
 const supported = () => 'serviceWorker' in navigator && window.isSecureContext && !import.meta.env.DEV
 
-/** A request to the worker that controls the app, answered on a message port. */
+/** A request to the worker that controls the app, answered on a message port. One timer covers the wait for the
+    worker too: `ready` never resolves when register() failed (a first start offline). */
 async function ask<T>(msg: Msg, timeout = 10_000): Promise<T> {
   if (!supported()) throw new Error('Offline copies need the app over https (or on localhost)')
-  const reg = await navigator.serviceWorker.ready
-  const sw = navigator.serviceWorker.controller || reg.active
-  if (!sw) throw new Error('The offline worker is not running yet')
-  return new Promise<T>((resolve, reject) => {
-    const ch = new MessageChannel()
-    const t = setTimeout(() => reject(new Error('The offline worker did not answer')), timeout)
-    ch.port1.onmessage = (e) => {
-      clearTimeout(t)
-      resolve(e.data as T)
-    }
-    sw.postMessage(msg, [ch.port2])
+  let t: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => {
+    t = setTimeout(() => reject(new Error('The offline worker did not answer')), timeout)
   })
+  try {
+    const reg = await Promise.race([navigator.serviceWorker.ready, late])
+    const sw = navigator.serviceWorker.controller || reg.active
+    if (!sw) throw new Error('The offline worker is not running yet')
+    const answer = new Promise<T>((resolve) => {
+      const ch = new MessageChannel()
+      ch.port1.onmessage = (e) => resolve(e.data as T)
+      sw.postMessage(msg, [ch.port2])
+    })
+    return await Promise.race([answer, late])
+  } finally {
+    clearTimeout(t)
+  }
 }
 
 export async function refreshSaved(): Promise<void> {
