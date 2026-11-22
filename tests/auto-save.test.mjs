@@ -69,6 +69,14 @@ test('nothing while offline, and the 30 minutes start only from a run that happe
   assert.equal(asked.length, 1)
 })
 
+test('an empty list asks nothing (it would evict every saved page) and does not start the 30 minutes', async () => {
+  const { asked, env, run } = setup()
+  for (const reason of ['load', 'switch', 'online', 'visible']) assert.equal(await run([], reason), null, reason)
+  env.t += 60_000
+  assert.notEqual(await run(items, 'visible'), null)
+  assert.equal(asked.length, 1)
+})
+
 test('one run at a time', async () => {
   let release
   const asked = []

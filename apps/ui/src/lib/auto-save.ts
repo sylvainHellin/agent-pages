@@ -35,12 +35,13 @@ export interface AutoDeps {
 
 type Listed = { url: string; status: string; changed: number }
 
-/** run(items, reason): the worker's answer, or null when nothing was asked (switch off, offline, too soon, one running). */
+/** run(items, reason): the worker's answer, or null when nothing was asked (switch off, offline, too soon, one running,
+    or an empty list, which would evict every page saved so far). */
 export function autoSaver(deps: AutoDeps) {
   let last = -Infinity
   let running = false
   return async function run(items: Listed[], reason: AutoReason): Promise<AutoResult | null> {
-    if (!deps.enabled() || !deps.online() || running) return null
+    if (!deps.enabled() || !deps.online() || running || items.length === 0) return null
     const now = deps.now()
     if ((reason === 'online' || reason === 'visible') && now - last < AUTO_EVERY) return null
     last = now
