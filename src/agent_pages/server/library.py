@@ -23,7 +23,9 @@ items.json is written only by a PATCH and by mark_sent, with the fields they set
 older stores, read on every listing and never written: _data/pages.json (URL-keyed) for a page under a root, and
 lesson.json for a tutor lesson, whose status open|done|archived (learning and understood still read as open and
 done) the tutor skill sets. A lesson.json newer than the stored entry's `updated` wins for a field whose value it
-changed since that PATCH (`lesson` keeps the values lesson.json had then), so the tutor's later edits show.
+changed since that PATCH (`lesson` keeps the values lesson.json had then), so the tutor's later edits show. A PATCH
+or a send first takes every field lesson.json wins into the entry (and `lesson`), so a change to other fields never
+hands a won field back to the older stored value.
 """
 
 from __future__ import annotations
@@ -291,30 +293,43 @@ def _report_entry(key: str, url: str, items: dict, old: dict) -> dict:
     return {**_old_fields(old.get(url) or old.get(key)), **(items.get(key) or {})}
 
 
+def _lesson_wins(stored: dict, lesson: dict, mtime: float) -> dict:
+    """The fields of lesson.json (as _old_fields gives them) that override the stored entry: lesson.json was written
+    after the entry and changed the field's value since that field was stored."""
+    if mtime <= float(stored.get("updated") or 0):
+        return {}
+    seen = stored.get("lesson") if isinstance(stored.get("lesson"), dict) else {}
+    return {k: v for k, v in lesson.items() if k in stored and (k not in seen or seen[k] != v)}
+
+
 def _tutor_entry(slug: str, items: dict, meta: dict, mtime: float) -> dict:
     """A tutor lesson's fields: lesson.json, under what items.json stores for it. A lesson.json written after the
     stored entry wins for each field whose value differs from the one it had when that field was stored."""
     stored = items.get(tutor_key(slug)) or {}
     lesson = _old_fields(meta)
-    seen = stored.get("lesson") if isinstance(stored.get("lesson"), dict) else {}
-    out = {**lesson, **stored}
-    if mtime > float(stored.get("updated") or 0):
-        for k, v in lesson.items():
-            if k in stored and (k not in seen or seen[k] != v):
-                out[k] = v
-                if k == "status":
-                    out.pop("sent_at", None)
+    wins = _lesson_wins(stored, lesson, mtime)
+    out = {**lesson, **stored, **wins}
+    if "status" in wins:
+        out.pop("sent_at", None)
     return out
 
 
 def _store(items: dict, item: dict, patch: dict, now: float) -> dict:
-    """Merge `patch` into the stored entry of a listed page; for a tutor lesson, remember what lesson.json said."""
+    """Merge `patch` into the stored entry of a listed page. For a tutor lesson, first take into the entry every field
+    lesson.json wins now (the new `updated` stamp would hand it back to the entry's older value), then remember what
+    lesson.json says for each field stored."""
     entry = items.setdefault(item["key"], {})
+    lesson = _old_fields(_lesson_json(item["slug"])) if item["origin"] == "tutor" else {}
+    wins = _lesson_wins(entry, lesson, _lesson_mtime(item["slug"])) if lesson else {}
+    if wins:
+        entry.update(wins)
+        if "status" in wins:
+            entry.pop("sent_at", None)
+        entry.setdefault("lesson", {}).update(wins)
     entry.update(patch)
     if entry.get("status") != "sent":
         entry.pop("sent_at", None)
     if item["origin"] == "tutor":
-        lesson = _old_fields(_lesson_json(item["slug"]))
         seen = entry.setdefault("lesson", {})
         for k in patch:
             if k in lesson:

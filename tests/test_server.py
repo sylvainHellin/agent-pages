@@ -568,6 +568,34 @@ class ServerRoutes(unittest.TestCase):
         status, r = self.patch(item["id"], {"status": "open"})
         self.assertEqual((status, r["status"]), (200, "open"))  # a later PATCH wins again
 
+    def backdate_store(self, key: str, ago: float) -> None:
+        """Move the stored entry's `updated` stamp `ago` seconds into the past, as if that change were older."""
+        path = self.cfg.lessons_dir / "_data" / "items.json"
+        items = json.loads(path.read_text())
+        items[key]["updated"] = time.time() - ago
+        path.write_text(json.dumps(items))
+
+    def test_a_later_patch_or_send_keeps_what_lesson_json_won(self):
+        key = f"tutor:{SLUG}"
+        self.write_lesson_json({"title": "A lesson", "status": "learning", "tags": ["sql"]}, ahead=-1000)
+        self.assertEqual(self.patch(self.tutor_item()["id"], {"status": "archived", "tags": ["mine"]})[0], 200)
+        self.backdate_store(key, 500)
+        self.write_lesson_json({"title": "A lesson", "status": "done", "tags": ["sql"]}, ahead=-400)  # the tutor: done
+        item = self.tutor_item()
+        self.assertEqual((item["status"], item["tags"]), ("done", ["mine", "lesson"]))
+        status, r = self.patch(item["id"], {"tags": ["mine", "two"]})  # Sylvain edits only the tags
+        self.assertEqual((status, r["status"], r["tags"]), (200, "done", ["mine", "two", "lesson"]))
+        self.assertEqual(self.tutor_item()["status"], "done")
+        self.backdate_store(key, 300)
+        self.write_lesson_json({"title": "A lesson", "status": "done", "tags": ["sql", "joins"]}, ahead=-200)
+        self.assertEqual(self.tutor_item()["tags"], ["sql", "joins", "lesson"])  # the tutor's new tags win
+        library.mark_sent(key)
+        item = self.tutor_item()
+        self.assertEqual((item["status"], item["tags"]), ("sent", ["sql", "joins", "lesson"]))  # the send keeps them
+        self.backdate_store(key, 100)
+        self.write_lesson_json({"title": "A lesson", "status": "done", "tags": ["sql", "joins"]}, ahead=-50)
+        self.assertEqual(self.tutor_item()["status"], "sent")  # lesson.json rewritten unchanged undoes nothing
+
     def test_copy_of_a_tutor_lesson_under_a_root_is_its_own_page(self):
         lesson = self.cfg.lessons_dir / SLUG / "index.html"
         lesson.write_text(LESSON_PAGE.replace("2026-03-04_how-it-works", SLUG))  # data-doc-id = the slug, as lessons.py stamps it
