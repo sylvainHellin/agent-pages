@@ -13,12 +13,17 @@
      TutorSync.push(api, slug)  the app, after edits
    pull and push take an optional last argument `key`, the page's storage key, when it differs from the lesson slug.
    Last sync per page and device: localStorage tl-sync:<key> = {at: server time, sig: the data sent or received},
-   the common base of the three-way merge when both sides changed. */
+   the common base of the three-way merge when both sides changed. A push sends `at`; the server refuses it (409,
+   {stale: true}) when another device saved since, and the device pulls and merges first.
+   report.js keeps its own copy of the stored state and writes it back on every edit, so a page takes in a newer
+   server state only when the reader is not typing, and reloads right after: until then it neither writes the
+   storage nor pushes, and the meta keeps the old base for the merge. */
 (function () {
   'use strict';
   if (window.TutorSync) return;
   var PARTS = { c: '', answers: ':answers', notes: ':notes', round: ':round', prev: ':prev' };
   var busy = {};
+  var behind = {}; // key -> true: the server holds a newer state than this device's base (a push was refused)
   function key(k, part) { return 'anno:' + k + PARTS[part]; }
   function read(k) {
     var d = {};
@@ -90,8 +95,13 @@
   }
 
   function req(api, path, opts) {
-    return fetch(api + path, Object.assign({ cache: 'no-store' }, opts || {}))
-      .then(function (r) { if (!r.ok) throw new Error('review sync ' + r.status); return r.json(); });
+    return fetch(api + path, Object.assign({ cache: 'no-store' }, opts || {})).then(function (r) {
+      if (r.ok) return r.json();
+      var e = new Error('review sync ' + r.status);
+      e.status = r.status;
+      if (r.status !== 409) throw e;
+      return r.json().then(function (b) { e.stale = !!(b && b.stale); throw e; }, function () { throw e; });
+    });
   }
   function lessonPath(slug) { return 'lessons/' + encodeURIComponent(slug) + '/review'; }
 
@@ -100,9 +110,10 @@
     var d = read(k), s = JSON.stringify(d), m = meta(k);
     if (s === (m.sig || '{}')) return Promise.resolve(false);
     busy[k] = true;
-    return req(api, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: d }), keepalive: !!keepalive })
+    var body = JSON.stringify({ data: d, at: m.at || 0 });
+    return req(api, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: !!keepalive })
       .then(function (r) { setMeta(k, r.updated, d); return true; })
-      .catch(function () { return false; })
+      .catch(function (e) { if (e && e.stale) behind[k] = true; return false; })
       .then(function (x) { busy[k] = false; return x; });
   }
 
@@ -112,6 +123,7 @@
     var m = meta(k), loc = read(k), sd = (srv && srv.data) || {};
     var dirty = JSON.stringify(loc) !== (m.sig || '{}');
     var newer = ((srv && srv.updated) || 0) > (m.at || 0);
+    behind[k] = false;
     if (!newer) return dirty ? 'dirty' : 'same';
     if (!dirty || empty(loc)) {
       var changed = !same(loc, sd);
@@ -132,7 +144,13 @@
     }).catch(function () { return false; });
   }
 
-  function push(api, slug, keepalive, k) { return slug ? pushTo(api, lessonPath(slug), k || slug, keepalive) : Promise.resolve(false); }
+  // The app's push: a refused one (another device saved since) pulls, merges and sends the merge.
+  function pushMerge(api, path, k, keepalive) {
+    return pushTo(api, path, k, keepalive).then(function (ok) {
+      return ok || !behind[k] ? ok : pullFrom(api, path, k);
+    });
+  }
+  function push(api, slug, keepalive, k) { return slug ? pushMerge(api, lessonPath(slug), k || slug, keepalive) : Promise.resolve(false); }
   function pull(api, slug, k) { return slug ? pullFrom(api, lessonPath(slug), k || slug) : Promise.resolve(false); }
 
   // The storage key report.js uses (docIdOf there).
@@ -153,25 +171,48 @@
         '" is also used by ' + o.shared.join(', ') + '; give each page its own id');
       return;
     }
-    if (o.state) {
-      var r = apply(k, o.state);
-      if (r === 'merged' || r === 'dirty') setTimeout(function () { pushTo(api, path, k); }, 0);
-    }
     var framed = window.parent !== window;
-    setInterval(function () { pushTo(api, path, k); }, 1500);
+    // The app's service worker serves a page from its offline cache first, so the state in its head may be old:
+    // nothing is pushed until the load-time pull has answered (a lesson in the app: the app pulled before loading it).
+    var sw = window.navigator && window.navigator.serviceWorker;
+    var waiting = !!(sw && sw.controller) && !(o.lesson && framed), pulling = false;
+    function send(keepalive) {
+      if (waiting || behind[k]) return Promise.resolve(false);
+      return pushTo(api, path, k, keepalive);
+    }
+    // Pull, and take a newer state in only while the reader is not typing (report.js would write its older copy
+    // back over it); resolves true when the page has to reload to show what is stored now.
+    function catchUp() {
+      pulling = true;
+      return req(api, path).then(function (srv) {
+        waiting = false;
+        var newer = ((srv && srv.updated) || 0) > (meta(k).at || 0);
+        if (newer && editing()) { behind[k] = true; return false; }
+        var r = apply(k, srv);
+        if (r === 'dirty') send();
+        return r === 'wrote' || r === 'merged'; // merged: the reloaded page pushes it
+      }).catch(function () { waiting = false; return false; })
+        .then(function (changed) { pulling = false; if (changed) location.reload(); return changed; });
+    }
+    if (o.state) {
+      var r = apply(k, o.state); // before report.js reads the storage
+      if (r === 'merged' || r === 'dirty') setTimeout(function () { send(); }, 0);
+    }
+    setInterval(function () {
+      if (!behind[k]) send();
+      else if (!pulling && !editing()) catchUp();
+    }, 1500);
     function back() {
       if (o.lesson && framed) return; // the app's reader pulls lessons and reloads them itself
-      pullFrom(api, path, k).then(function (changed) { if (changed && !editing()) location.reload(); });
+      if (!pulling) catchUp();
     }
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'hidden') pushTo(api, path, k, true);
+      if (document.visibilityState === 'hidden') send(true);
       else back();
     });
-    window.addEventListener('pagehide', function () { pushTo(api, path, k, true); });
+    window.addEventListener('pagehide', function () { send(true); });
     window.addEventListener('pageshow', function (e) { if (e && e.persisted) back(); });
-    // The app's service worker serves a page from its offline cache first, so the state in its head may be old.
-    var sw = window.navigator && window.navigator.serviceWorker;
-    if (sw && sw.controller) back();
+    if (waiting) catchUp();
   }
 
   window.TutorSync = { pull: pull, push: push, read: read, merge: merge, page: page };

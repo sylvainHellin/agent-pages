@@ -7,11 +7,13 @@ import vm from 'node:vm'
 
 const SRC = readFileSync(new URL('../template/review-sync.js', import.meta.url), 'utf8')
 
-function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = false, controlled = false } = {}) {
+function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = false, controlled = false, slowGets = false } = {}) {
   const store = new Map()
   const listeners = {}
   const posts = []
   const gets = []
+  const intervals = []
+  const held = [] // GETs waiting for answer() when slowGets
   let server = { updated: 0, data: {} }
   const win = {
     localStorage: {
@@ -29,7 +31,7 @@ function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = fa
     location: { pathname: path, reloaded: 0, reload() { this.reloaded++ } },
     console: { warn: (...a) => win.warned.push(a.join(' ')) },
     warned: [],
-    setInterval: () => 0,
+    setInterval: (f) => (intervals.push(f), 0),
     setTimeout: (f) => setTimeout(f, 0),
     addEventListener: (t, f) => ((listeners[t] = listeners[t] || []).push(f)),
     navigator: { serviceWorker: { controller: controlled ? {} : null } },
@@ -37,11 +39,17 @@ function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = fa
       if (opts.method !== 'POST') gets.push(url)
       if (opts.method === 'POST') {
         const body = JSON.parse(opts.body)
-        posts.push({ url, data: body.data })
+        posts.push({ url, data: body.data, at: body.at })
+        if (body.at != null && body.at < server.updated) { // as the server: a push from an older base is refused
+          const updated = server.updated
+          return { ok: false, status: 409, json: async () => ({ error: 'stale', stale: true, updated }) }
+        }
         server = { updated: server.updated + 1, data: body.data }
         return { ok: true, json: async () => ({ updated: server.updated }) }
       }
-      return { ok: true, json: async () => server }
+      const snap = JSON.parse(JSON.stringify(server))
+      if (slowGets) await new Promise((r) => held.push(r))
+      return { ok: true, json: async () => snap }
     },
   }
   win.window = win
@@ -52,7 +60,10 @@ function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = fa
   const set = (k, v) => store.set(k, JSON.stringify(v))
   return {
     win, ls, set, posts, gets, listeners,
+    server: () => server,
     setServer: (s) => { server = s },
+    every: async () => { for (const f of intervals) f(); for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)) },
+    answer: async () => { held.splice(0).forEach((r) => r()); for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)) },
     fire: async (t) => { for (const f of listeners[t] || []) f(); await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)) },
   }
 }
@@ -152,6 +163,40 @@ test('page: opened from the offline cache, it pulls once at load and reloads whe
   assert.equal(b.win.location.reloaded, 1)
 })
 
+test('page: opened from the offline cache and edited before its load-time pull answers, the other device\'s comment survives', async () => {
+  // this device synced [a]; the phone added b since; the cached head still says [a]; the reader types c at once
+  const b = browser({ controlled: true, slowGets: true })
+  b.set('anno:doc-1', [c('a')])
+  b.set('tl-sync:doc-1', { at: 1, sig: JSON.stringify({ c: [c('a')] }) })
+  b.setServer({ updated: 2, data: { c: [c('a'), c('b')] } })
+  b.win.TutorSync.page({ api: '/api/', path: 'reviews/r1', state: { updated: 1, data: { c: [c('a')] } } })
+  b.win.document.activeElement = { tagName: 'TEXTAREA' }
+  b.set('anno:doc-1', [c('a'), c('c')]) // report.js saves the new comment
+  await b.every() // the 1.5 s push, before the pull answered
+  await b.answer() // the pull answers while the reader is still typing
+  b.set('anno:doc-1', [c('a'), c('c'), c('d')]) // report.js saves again from its own copy
+  await b.every()
+  b.win.document.activeElement = null // done typing
+  await b.every() // takes the newer state in and reloads
+  await b.answer()
+  await b.every() // the reloaded page pushes the merge
+  await b.answer()
+  assert.deepEqual(b.server().data.c.map((x) => x.id).sort(), ['a', 'b', 'c', 'd'])
+  assert.ok(b.win.location.reloaded >= 1)
+})
+
+test('page: open on a desk while another device wrote, its push is refused, merged with the newer state and sent again', async () => {
+  const b = browser()
+  b.win.TutorSync.page({ api: '/api/', path: 'reviews/r1', state: { updated: 1, data: { c: [c('a')] } } })
+  b.setServer({ updated: 5, data: { c: [c('a'), c('b')] } }) // the phone added b
+  b.set('anno:doc-1', [c('a'), c('c')])
+  await b.every() // refused: based on 1
+  await b.every() // pulls, merges, reloads
+  await b.every() // pushes the merge
+  assert.deepEqual(b.server().data.c.map((x) => x.id).sort(), ['a', 'b', 'c'])
+  assert.equal(b.win.location.reloaded, 1)
+})
+
 test('page: served by the server itself, its head is current and nothing is pulled at load', async () => {
   const b = browser()
   b.win.TutorSync.page({ api: '/api/', path: 'reviews/r1', state: { updated: 1, data: {} } })
@@ -176,6 +221,17 @@ test('page: a shared page id syncs nothing and says why', async () => {
   assert.equal(b.posts.length, 0)
   assert.deepEqual(b.ls('anno:doc-1'), [c('mine')])
   assert.match(b.win.warned[0], /a\.html/)
+})
+
+test('the app API: a push refused because another device saved since pulls, merges and sends the merge', async () => {
+  const b = browser()
+  b.setServer({ updated: 3, data: { c: [c('a')] } })
+  await b.win.TutorSync.pull('/api/', 'L1')
+  b.setServer({ updated: 4, data: { c: [c('a'), c('b')] } }) // the phone added b
+  b.set('anno:L1', [c('a'), c('l')])
+  await b.win.TutorSync.push('/api/', 'L1')
+  assert.deepEqual(b.server().data.c.map((x) => x.id).sort(), ['a', 'b', 'l'])
+  assert.deepEqual(b.ls('anno:L1').map((x) => x.id).sort(), ['a', 'b', 'l'])
 })
 
 test('the app API keeps working: pull and push by lesson slug', async () => {
