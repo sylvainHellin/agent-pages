@@ -186,12 +186,17 @@ function worker(files) {
     skipWaiting: () => {},
     clients: { matchAll: async () => [{ postMessage: (m) => posted.push(m) }], claim: async () => {} },
   }
-  const w = { down: false }
+  const w = { down: false, slow: false, inFlight: 0, maxInFlight: 0 }
   const fetch = async (u, init = {}) => {
     const rel = new URL(urlOf(u)).pathname.slice(1)
     const inm = (init.headers || {})['If-None-Match'] || null
     if (w.down) throw new TypeError('Failed to fetch')
     fetched.push([rel, inm])
+    if (w.slow) {
+      w.maxInFlight = Math.max(w.maxInFlight, ++w.inFlight)
+      await new Promise((r) => setTimeout(r, 2))
+      w.inFlight--
+    }
     if (!(rel in files)) return res('not found', { status: 404 })
     const f = typeof files[rel] === 'string' ? { body: files[rel] } : files[rel]
     const etag = f.etag || '"new"'
@@ -291,4 +296,83 @@ test('after a fresh install, with the network down, the lists the app loads come
     assert.equal(await r.text(), w.files[p], p)
   }
   assert.deepEqual(w.fetched.map((f) => f[0]).filter((p) => /api\/(pages|lessons)$/.test(p)), [], 'no request for the lists that are gone')
+})
+
+// Every Open page downloaded (agent-pages:auto): the app sends the URLs of the pages whose status is open, newest first.
+const pageHtml = (img, pad = '') => `<!doctype html><head><link rel="stylesheet" href="/_template/report.css"></head><body>${pad}<img src="${img}"></body>`
+const auto = (w, paths, budget) => w.ask({ type: 'agent-pages:auto', urls: paths.map((p) => SCOPE + p), budget })
+const pagesCached = async (w) => (await w.keys(SW.CACHES.pages)).map((u) => u.slice(SCOPE.length)).sort()
+
+test('auto: every open page is saved with its images and stylesheets, two requests at a time, with progress', async () => {
+  const files = { '_template/report.css': 'body{}' }
+  for (let i = 1; i <= 5; i++) {
+    files[`documents/a/p${i}.html`] = pageHtml(`img/p${i}.png`)
+    files[`documents/a/img/p${i}.png`] = 'PNG'
+  }
+  const w = worker(files)
+  w.slow = true
+  const r = await auto(w, [1, 2, 3, 4, 5].map((i) => `documents/a/p${i}.html`))
+  assert.equal(r.saved, 5)
+  assert.deepEqual([...r.notSaved], [])
+  assert.deepEqual(await pagesCached(w), ['_template/report.css', ...[1, 2, 3, 4, 5].flatMap((i) => [`documents/a/img/p${i}.png`, `documents/a/p${i}.html`])].sort())
+  assert.equal(w.maxInFlight, 2)
+  const progress = w.posted.filter((m) => m.type === 'agent-pages:progress')
+  assert.deepEqual({ ...progress.at(-1) }, { type: 'agent-pages:progress', done: 5, total: 5, running: false })
+  assert.ok(progress.some((m) => m.running && m.done < 5))
+})
+
+test('auto: a page cached with the ETag the server still has is not downloaded again (conditional request)', async () => {
+  const files = {
+    '_template/report.css': 'body{}',
+    'documents/a/same.html': { body: pageHtml('img/s.png'), etag: '"s1"' },
+    'documents/a/img/s.png': 'PNG',
+    'documents/a/changed.html': { body: pageHtml('img/c2.png', 'v2'), etag: '"c2"' },
+    'documents/a/img/c2.png': 'PNG2',
+  }
+  const w = worker(files)
+  await w.put(SW.CACHES.pages, SCOPE + 'documents/a/same.html', pageHtml('img/s.png'), '"s1"')
+  await w.put(SW.CACHES.pages, SCOPE + 'documents/a/img/s.png', 'PNG', '"x"')
+  await w.put(SW.CACHES.pages, SCOPE + '_template/report.css', 'body{}', '"x"')
+  await w.put(SW.CACHES.pages, SCOPE + 'documents/a/changed.html', pageHtml('img/c1.png', 'v1'), '"c1"')
+  const r = await auto(w, ['documents/a/same.html', 'documents/a/changed.html'])
+  assert.deepEqual(w.fetched, [['documents/a/same.html', '"s1"'], ['documents/a/changed.html', '"c1"'], ['documents/a/img/c2.png', null]])
+  assert.equal(r.unchanged, 1)
+  assert.equal(await w.text(SW.CACHES.pages, SCOPE + 'documents/a/changed.html'), files['documents/a/changed.html'].body)
+})
+
+test('auto: past the budget it stops; the rest is not saved and not even asked for', async () => {
+  const files = {}
+  for (let i = 1; i <= 6; i++) files[`documents/a/b${i}.html`] = `<!doctype html><body>${'x'.repeat(80)}</body>` // 108 bytes
+  const w = worker(files)
+  const paths = [1, 2, 3, 4, 5, 6].map((i) => `documents/a/b${i}.html`)
+  const r = await auto(w, paths, 250)
+  assert.deepEqual(await pagesCached(w), ['documents/a/b1.html', 'documents/a/b2.html'])
+  assert.deepEqual([...r.notSaved].map((u) => u.slice(SCOPE.length)).sort(), paths.slice(2))
+  assert.equal(r.bytes, 216)
+  // two at a time: the page beside the one that passed the budget may be on its way already, none after it
+  assert.deepEqual(w.fetched.map((f) => f[0]).filter((p) => /b[56]/.test(p)), [])
+})
+
+test('auto: a page no longer open is evicted when it was auto-downloaded; one saved with Download or opened stays', async () => {
+  const files = {
+    '_template/report.css': 'body{}',
+    'documents/a/auto.html': pageHtml('img/only-auto.png') + '<img src="img/shared.png">',
+    'documents/a/img/only-auto.png': 'A',
+    'documents/a/img/shared.png': 'S',
+    'documents/a/hand.html': pageHtml('img/shared.png'),
+    'documents/a/seen.html': pageHtml('img/seen.png'),
+    'documents/a/img/seen.png': 'V',
+    'documents/a/still.html': pageHtml('img/still.png'),
+    'documents/a/img/still.png': 'T',
+  }
+  const w = worker(files)
+  await w.request(SCOPE + 'documents/a/seen.html', { mode: 'navigate', cache: 'default' }) // opened in the app before
+  await auto(w, ['documents/a/auto.html', 'documents/a/hand.html', 'documents/a/seen.html', 'documents/a/still.html'])
+  await w.ask({ type: 'agent-pages:prefetch', urls: [SCOPE + 'documents/a/hand.html'] }) // Download for offline
+  const r = await auto(w, ['documents/a/still.html']) // the others are done or archived now
+  assert.deepEqual([...r.evicted].map((u) => u.slice(SCOPE.length)), ['documents/a/auto.html'])
+  assert.deepEqual(await pagesCached(w), [
+    '_template/report.css', 'documents/a/hand.html', 'documents/a/img/seen.png', 'documents/a/img/shared.png', 'documents/a/img/still.png',
+    'documents/a/seen.html', 'documents/a/still.html',
+  ])
 })

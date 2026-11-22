@@ -14,16 +14,27 @@
      the rest of api/*, other methods, Range requests, media, other origins
                                     never cached
    Messages from the app (an answer on the message port):
-     {type: 'agent-pages:prefetch', urls, budget}   pages with the template files and images they reference
+     {type: 'agent-pages:prefetch', urls, budget}   Download for offline: pages with the template files and images they
+                                                    reference; a page saved so is never evicted by auto below
+     {type: 'agent-pages:auto', urls, budget}       every Open page (urls, newest first): each page asked with its cached
+                                                    ETag (304: nothing downloaded), two at a time, with what it references,
+                                                    until the pages and files of the list pass budget (150 MB), the rest not
+                                                    saved; then the pages this saved before that are no longer in urls are
+                                                    evicted with the files they added that no saved page still uses
      {type: 'agent-pages:warm', urls}               what the app loaded before this worker controlled it
      {type: 'agent-pages:cached'}                   the pages that are saved, {urls: [...]}
    Network state changes are posted as {type: 'agent-pages:net', online}, a page put in the cache as
-   {type: 'agent-pages:saved', url}.
+   {type: 'agent-pages:saved', url}, the progress of auto as {type: 'agent-pages:progress', done, total, running}.
    Bump VERSION when the cache layout changes: activate deletes every agent-pages cache of another version. */
 var AgentPagesSW = (function () {
   'use strict'
   var VERSION = 'v1'
-  var CACHES = { assets: 'agent-pages-assets-' + VERSION, pages: 'agent-pages-pages-' + VERSION, api: 'agent-pages-api-' + VERSION }
+  var CACHES = {
+    assets: 'agent-pages-assets-' + VERSION,
+    pages: 'agent-pages-pages-' + VERSION,
+    api: 'agent-pages-api-' + VERSION,
+    meta: 'agent-pages-meta-' + VERSION, // the record of what auto saved
+  }
   var API_LISTS = { 'api/items': 1, 'api/projects': 1, 'api/theme.css': 1 }
   var NEVER = { 'sw.js': 1, healthz: 1, 'index.json': 1 }
   var STATIC = /\.(css|js|mjs|png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|webmanifest)$/i
@@ -264,16 +275,40 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       })
     }
 
+    function size(res) {
+      var n = Number(res.headers.get('Content-Length'))
+      return n > 0 ? Promise.resolve(n) : res.clone().blob().then(function (b) { return b.size })
+    }
+
+    /* The pages auto saved that were not in the cache before, each with the files it added: {pageUrl: [fileUrl]}.
+       Updates run one after the other. */
+    var AUTO_KEY = new URL('.agent-pages-auto.json', scope).href
+    var autoQueue = Promise.resolve()
+    function readAuto() {
+      return caches.open(SW.CACHES.meta).then(function (c) { return c.match(AUTO_KEY) })
+        .then(function (r) { return r ? r.text().then(function (t) { return JSON.parse(t) || {} }) : {} })
+        .catch(function () { return {} })
+    }
+    function updateAuto(change) {
+      var job = autoQueue.then(function () {
+        return readAuto().then(function (rec) {
+          return Promise.resolve(change(rec)).then(function () {
+            var body = new Response(JSON.stringify(rec), { headers: { 'Content-Type': 'application/json' } })
+            return caches.open(SW.CACHES.meta).then(function (c) { return c.put(AUTO_KEY, body) })
+          })
+        })
+      })
+      autoQueue = job.catch(function () {})
+      return job
+    }
+
     /* Download pages for offline reading: each page fresh, then what it references (and what its CSS references),
-       skipping what is cached already; stops adding once the new bytes would pass the budget. */
+       skipping what is cached already; stops adding once the new bytes would pass the budget.
+       The pages are the reader's from now on: auto no longer evicts them. */
     function prefetch(urls, budget) {
       var out = { pages: 0, files: 0, bytes: 0, skipped: [], failed: [] }
-      var seen = new Set()
+      var seen = new Set(), keys = []
       budget = budget > 0 ? budget : 50e6
-      function size(res) {
-        var n = Number(res.headers.get('Content-Length'))
-        return n > 0 ? Promise.resolve(n) : res.clone().blob().then(function (b) { return b.size })
-      }
       function one(u, page) {
         if (seen.has(u)) return Promise.resolve(null)
         seen.add(u)
@@ -308,9 +343,172 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
         return p.then(function () {
           var u = new URL(raw, scope)
           u.hash = ''
+          keys.push(u.href)
           return one(u.href, true).then(refs)
         })
-      }, Promise.resolve()).then(function () { return out })
+      }, Promise.resolve()).then(function () {
+        return updateAuto(function (rec) { keys.forEach(function (k) { delete rec[k] }) }).catch(function () {})
+      }).then(function () { return out })
+    }
+
+    /* Every Open page saved (agent-pages:auto, see the top of the file). */
+    var autoRunning = false
+    function autoSave(urls, budget) {
+      if (autoRunning) return Promise.resolve({ busy: true })
+      autoRunning = true
+      budget = budget > 0 ? budget : 150e6
+      var pages = []
+      ;(urls || []).forEach(function (raw) {
+        try {
+          var u = new URL(raw, scope)
+          u.hash = ''
+          if (pages.indexOf(u.href) < 0) pages.push(u.href)
+        } catch {
+          /* not a URL */
+        }
+      })
+      var out = { pages: pages.length, saved: 0, unchanged: 0, bytes: 0, notSaved: [], failed: [], evicted: [] }
+      var counted = new Set(), seen = new Set(), added = {}, stop = false, done = 0, next = 0
+      function progress(running) {
+        post({ type: 'agent-pages:progress', done: done, total: pages.length, running: running })
+      }
+      /* the bytes of u go into the list's total, once; false (and the run stops) when they would pass the budget */
+      function count(u, n) {
+        if (counted.has(u)) return true
+        if (out.bytes + n > budget) {
+          stop = true
+          return false
+        }
+        counted.add(u)
+        out.bytes += n
+        return true
+      }
+      function files(list, owner) {
+        return list.reduce(function (p, u) { return p.then(function () { return file(u, owner) }) }, Promise.resolve())
+      }
+      function file(u, owner) {
+        if (stop || seen.has(u)) return Promise.resolve()
+        seen.add(u)
+        var s = SW.strategy({ url: u, method: 'GET' }, scope)
+        if (s.kind === 'network') return Promise.resolve()
+        return lookup(s).then(function (hit) {
+          if (hit) return size(hit).then(function (n) { count(u, n) }) // saved already: it counts, nothing is asked
+          return fetchNet(u, { cache: 'no-cache', credentials: 'same-origin' }).then(function (res) {
+            if (!cacheable(res)) return
+            return size(res).then(function (n) {
+              if (!count(u, n)) return
+              return store(s, res).then(function (ok) {
+                if (!ok) return
+                if (added[owner]) added[owner].push(s.key)
+                if (/text\/css/.test(res.headers.get('Content-Type') || '')) return res.text().then(function (t) { return files(SW.cssRefs(t, u), owner) })
+              })
+            })
+          })
+        }).catch(function () {})
+      }
+      function page(u, rec) {
+        if (stop) {
+          out.notSaved.push(u)
+          return Promise.resolve()
+        }
+        var s = SW.strategy({ url: u, method: 'GET', mode: 'navigate' }, scope)
+        if (s.kind === 'network' || s.shell) {
+          out.failed.push(u)
+          return Promise.resolve()
+        }
+        return lookup(s).then(function (hit) {
+          var etag = hit && hit.headers.get('ETag')
+          return fetchNet(s.key, { headers: etag ? { 'If-None-Match': etag } : {}, cache: 'no-store', credentials: 'same-origin' }).then(function (res) {
+            if (res.status === 304 && hit) {
+              return size(hit).then(function (n) {
+                if (!count(u, n)) return null // saved already, so it stays; the pages after it are not saved
+                out.unchanged++
+                return hit.text()
+              })
+            }
+            if (!cacheable(res)) {
+              out.failed.push(u)
+              return null
+            }
+            return size(res).then(function (n) {
+              if (!count(u, n)) {
+                out.notSaved.push(u)
+                return null
+              }
+              return store(s, res).then(function (ok) {
+                if (!ok) {
+                  out.failed.push(u)
+                  return null
+                }
+                out.saved++
+                if (!hit || rec[s.key]) added[s.key] = []
+                return res.text()
+              })
+            })
+          })
+        }).then(function (html) {
+          if (html) return files(SW.refsOf(html, s.key), s.key)
+        }).catch(function () { out.failed.push(u) })
+      }
+      /* the pages auto saved that are no longer in the list go, with the files they added that no saved page uses */
+      function evict(rec) {
+        var open = new Set(pages)
+        var gone = Object.keys(rec).filter(function (u) { return !open.has(u) })
+        if (!gone.length) return Promise.resolve()
+        return caches.open(SW.CACHES.pages).then(function (c) {
+          return Promise.all(gone.map(function (u) { return c.delete(u) }))
+            .then(cachedPages)
+            .then(function (left) {
+              var keep = new Set()
+              return Promise.all(left.map(function (u) {
+                return c.match(u).then(function (r) { return r ? r.text() : '' }).then(function (t) {
+                  SW.refsOf(t, u).forEach(function (f) { keep.add(f) })
+                })
+              })).then(function () {
+                var css = []
+                keep.forEach(function (f) { if (/\.css$/i.test(new URL(f).pathname)) css.push(f) })
+                return Promise.all(css.map(function (f) {
+                  return c.match(f).then(function (r) { return r ? r.text() : '' }).then(function (t) {
+                    SW.cssRefs(t, f).forEach(function (x) { keep.add(x) })
+                  })
+                }))
+              }).then(function () { return keep })
+            })
+            .then(function (keep) {
+              var drop = []
+              gone.forEach(function (g) {
+                ;(rec[g] || []).forEach(function (f) { if (!keep.has(f) && drop.indexOf(f) < 0) drop.push(f) })
+                delete rec[g]
+                out.evicted.push(g)
+              })
+              return Promise.all(drop.map(function (f) { return c.delete(f) }))
+            })
+        })
+      }
+      progress(true)
+      return readAuto().then(function (rec) {
+        function lane() {
+          if (next >= pages.length) return Promise.resolve()
+          var u = pages[next++]
+          return page(u, rec).then(function () {
+            done++
+            progress(true)
+          }).then(lane)
+        }
+        return Promise.all([lane(), lane()])
+      }).then(function () {
+        return updateAuto(function (rec) {
+          Object.keys(added).forEach(function (k) {
+            var had = rec[k] || []
+            added[k].forEach(function (f) { if (had.indexOf(f) < 0) had.push(f) })
+            rec[k] = had
+          })
+          return evict(rec)
+        })
+      }).then(function () { return out }).finally(function () {
+        autoRunning = false
+        progress(false)
+      })
     }
 
     /* What the app (and its iframe) loaded before this worker took control: cached now, mostly from the HTTP cache. */
@@ -356,6 +554,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       var reply = function (v) { if (port) port.postMessage(v) }
       var job
       if (d.type === 'agent-pages:prefetch') job = prefetch(d.urls || [], d.budget)
+      else if (d.type === 'agent-pages:auto') job = autoSave(d.urls || [], d.budget)
       else if (d.type === 'agent-pages:warm') job = warm(d.urls).then(function () { return { ok: true } })
       else if (d.type === 'agent-pages:cached') job = cachedPages().then(function (urls) { return { urls: urls, online: online } })
       else return
