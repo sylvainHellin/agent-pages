@@ -2071,7 +2071,8 @@
       sender.view({ btn: $('bn-send'), line: sendBoxText, again: sendBoxNew });
       sender.view({ btn: btnSend, line: sendText, again: sendNew });
       [$('bn-send'), btnSend].forEach(function (b) { b.addEventListener('click', function () { sendGone = null; sender.send(); }); });
-      [sendBoxNew, sendNew].forEach(function (b) { b.addEventListener('click', function () { sendGone = null; sender.startNew(); }); });
+      // Start a new agent, or Resume anyway when the server held a resume back: agent-send.js sets the label
+      [sendBoxNew, sendNew].forEach(function (b) { b.addEventListener('click', function () { sendGone = null; sender.again(); }); });
     }
     function download() {
       var url = URL.createObjectURL(new Blob([markdown()], { type: 'text/markdown;charset=utf-8' }));

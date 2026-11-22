@@ -124,7 +124,7 @@ test('the post carries the page, a send id and the export; a retry after a lost 
   assert.notEqual(b.calls[2].body.id, first.body.id)
 })
 
-test('live: queued, polled every 3 s while not final, then sent; the button waits meanwhile', async () => {
+test('live: queued, polled every 3 s while not final, then sent; the button waits only for the post', async () => {
   const b = browser()
   b.win.AgentSend.page({ api: '/api/', page: PAGE, new: false })
   const c = b.controller()
@@ -137,7 +137,7 @@ test('live: queued, polled every 3 s while not final, then sent; the button wait
   const id = b.calls[0].body.id
   assert.equal(v.line.textContent, 'Queued in herdr t17')
   assert.equal(v.line.hidden, false)
-  assert.equal(v.btn.disabled, true)
+  assert.equal(v.btn.disabled, false) // a click now is a new send, which replaces this one
   assert.equal(b.sentMarks(), 1) // the page records what went out, as Export does
   b.answers.get.push({ status: 200, body: { sends: [rec({ id, state: 'claimed' })] } })
   assert.deepEqual(await b.tick(), [3000])
@@ -186,7 +186,7 @@ test('none: Start a new agent posts a new send with new: true', async () => {
   assert.notEqual(b.calls[1].body.id, first)
   assert.equal(v.again.hidden, true)
   assert.equal(v.line.textContent, 'Starting a new agent')
-  assert.equal(v.btn.disabled, true)
+  assert.equal(v.btn.disabled, false)
 })
 
 test('none stored after the server start grace offers Start a new agent too; without one it points to Export', async () => {
@@ -283,5 +283,85 @@ test('a reload while a send waits picks up its state again', async () => {
   await again.settle()
   assert.equal(again.calls[0].url, `/api/sends?page=${PAGE}`)
   assert.equal(v2.line.textContent, 'Queued in herdr t17')
-  assert.equal(v2.btn.disabled, true)
+  assert.equal(v2.btn.disabled, false)
+  assert.equal(again.pending(), 1) // still polled
+})
+
+test('a pending send keeps Send and Start a new agent enabled; a new click replaces it', async () => {
+  const b = browser()
+  b.win.AgentSend.page({ api: '/api/', page: PAGE, new: true })
+  const c = b.controller()
+  const v = b.view()
+  c.view(v)
+  b.answers.post.push({ status: 200, body: rec({ route: 'pending', harness: 'pi', host: 'mac', where: '' }) })
+  c.send()
+  assert.equal(v.btn.disabled, true) // only while the post is out
+  await b.settle()
+  const first = b.calls[0].body.id
+  assert.equal(v.line.textContent, 'Waiting for pi on mac')
+  assert.equal(v.btn.disabled, false)
+  assert.equal(v.again.hidden, false)
+  assert.equal(v.again.disabled, false)
+  assert.equal(v.again.textContent, 'Start a new agent')
+  b.answers.post.push({ status: 200, body: rec({ route: 'live', state: 'pending' }) })
+  c.send()
+  await b.settle()
+  const second = b.calls[1].body
+  assert.notEqual(second.id, first) // a new send: the server cancels the pending one
+  assert.equal(v.line.textContent, 'Queued in herdr t17')
+  // a late poll answer about the first send changes nothing
+  b.answers.get.push({ status: 200, body: { sends: [rec({ id: first, state: 'cancelled' }), rec({ id: second.id })] } })
+  await b.tick()
+  assert.equal(v.line.textContent, 'Queued in herdr t17')
+  // Start a new agent from a pending send
+  b.answers.post.push({ status: 200, body: rec({ route: 'pending', harness: 'pi', host: 'mac', where: '' }) })
+  c.send()
+  await b.settle()
+  b.answers.post.push({ status: 200, body: rec({ state: 'claimed', route: 'new', harness: 'paseo', where: 'new agent' }) })
+  c.again()
+  await b.settle()
+  assert.equal(b.calls.at(-1).body.new, true)
+})
+
+test('the line says how long a send has waited', () => {
+  const b = browser()
+  b.win.AgentSend.page({ api: '/api/', page: PAGE, new: false })
+  const d = b.win.AgentSend.describe
+  const now = 1_800_000_000
+  const waiting = (ago) => d(rec({ route: 'pending', harness: 'pi', host: 'mac', where: '', created: now - ago }), now).text
+  assert.equal(waiting(30), 'Waiting for pi on mac')
+  assert.equal(waiting(12 * 60 + 5), 'Waiting for pi on mac for 12 min')
+  assert.equal(waiting(3 * 3600 + 5 * 60), 'Waiting for pi on mac for 3 h 5 min')
+  assert.equal(waiting(2 * 3600), 'Waiting for pi on mac for 2 h')
+  assert.equal(d(rec({ created: now - 120 }), now).text, 'Queued in herdr t17 for 2 min')
+  assert.equal(d(rec({ state: 'started', created: now - 600 }), now).text, 'Sent') // final: no time
+})
+
+test('held: the line names the folder and Resume anyway posts again with force', async () => {
+  const b = browser()
+  b.win.AgentSend.page({ api: '/api/', page: PAGE, new: true })
+  const c = b.controller()
+  const v = b.view()
+  c.view(v)
+  b.answers.post.push({ status: 200, body: rec({ state: 'held', route: 'held', where: '/home/s/work', terminal: 'herdr t4w', harness: 'paseo' }) })
+  c.send()
+  await b.settle()
+  assert.equal(v.line.textContent, 'A pi without Send to agent may hold this session in /home/s/work (herdr t4w): reload it, or resume anyway')
+  assert.equal(b.sentMarks(), 0) // nothing went out
+  assert.equal(b.pending(), 0) // final: no polling
+  assert.equal(v.again.hidden, false)
+  assert.equal(v.again.textContent, 'Resume anyway')
+  assert.equal(v.btn.disabled, false)
+  const first = b.calls[0].body.id
+  b.answers.post.push({ status: 200, body: rec({ state: 'claimed', route: 'resuming', harness: 'paseo', where: 'Paseo pages' }) })
+  c.again()
+  await b.settle()
+  const forced = b.calls[1].body
+  assert.equal(forced.force, true)
+  assert.equal(forced.new, undefined)
+  assert.notEqual(forced.id, first)
+  assert.equal(v.line.textContent, 'Resuming in Paseo pages')
+  assert.equal(v.again.hidden, true)
+  assert.equal(b.win.AgentSend.describe(rec({ state: 'held', route: 'held', where: '/w', terminal: 'Paseo agent aaaaaaaa-0000-4000-8000-000000000001' })).text,
+    'A pi without Send to agent may hold this session in /w (Paseo agent aaaaaaaa): reload it, or resume anyway')
 })
