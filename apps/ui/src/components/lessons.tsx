@@ -1,10 +1,11 @@
-/* Empty and not-found states of the lesson lists. (The lists themselves are the month board, board.tsx.) */
+/* Empty and not-found states of the list. (The list is views/LibraryView.tsx, its month board components/board.tsx.) */
 import { FileQuestionIcon } from 'lucide-react'
 
 export function LessonsEmptyHowto() {
   return (
     <div className="mx-auto max-w-lg py-16 text-center text-[13px] leading-relaxed text-muted-foreground">
-      <p className="mb-2 text-[15px] font-semibold tracking-[-0.01em] text-foreground">No lessons yet</p>
+      <p className="mb-2 text-[15px] font-semibold tracking-[-0.01em] text-foreground">No pages yet</p>
+      <p className="mb-2">The list shows the .html pages under the server's roots and the tutor's lessons.</p>
       <p>
         Start one under{' '}
         <a className="font-medium text-primary underline-offset-4 hover:underline" href="#/new">
@@ -24,7 +25,7 @@ export function NotFound({ what }: { what: string }) {
       <p className="text-[15px] font-semibold tracking-[-0.01em]">Not found</p>
       <p className="mt-1 text-[13px] text-muted-foreground">{what}</p>
       <a href="#/" className="mt-4 inline-block text-[13px] font-medium text-primary hover:underline">
-        ← All lessons
+        ← All pages
       </a>
     </div>
   )

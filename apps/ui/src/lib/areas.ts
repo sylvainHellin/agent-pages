@@ -1,6 +1,5 @@
-/* Areas of the report pages, in two levels: the group (first folder, e.g. work) and its sub-areas (work/notes), so the
+/* Areas of the pages, in two levels: the group (first folder, e.g. work) and its sub-areas (work/notes), so the
    filter shows ten groups instead of twenty flat labels. An area filter matches the area and everything under it. */
-import type { ReportPage } from './api'
 
 export interface AreaGroup {
   id: string
@@ -19,7 +18,7 @@ export function areaBelow(pageArea: string, area: string): string {
   return pageArea === area ? '' : pageArea.slice(area.length + 1)
 }
 
-export function areaGroups(pages: ReportPage[]): AreaGroup[] {
+export function areaGroups(pages: { area: string }[]): AreaGroup[] {
   const groups = new Map<string, AreaGroup>()
   for (const p of pages) {
     const id = groupOf(p.area)

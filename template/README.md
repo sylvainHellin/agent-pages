@@ -57,8 +57,8 @@ Headings get ids from their text, tables get their frame, and code blocks get a 
 
 ## Content conventions
 
-- A page that teaches a concept, a method or how a system works carries `<meta name="agent-pages-kind" content="lesson">` right after `<meta charset="utf-8">`; the library app lists it with the lessons, wherever it lives under the server's folders.
-  Without the line, or with another `content`, the page is a report; `lesson.html` carries it, `report.html` does not, and the app's Move to lessons and Move to reports actions add or remove it.
+- A page that teaches a concept, a method or how a system works carries `<meta name="agent-pages-kind" content="lesson">` right after `<meta charset="utf-8">`; the library app shows it with the tag `lesson` and opens it in the lesson reader, wherever it lives under the server's folders.
+  Without the line, or with another `content`, the page is a report; `lesson.html` carries it, `report.html` does not, and adding or removing the `lesson` tag in the app writes or removes the line.
 - Start with `p.eyebrow` (project and kind of report), the `h1` naming the subject, `p.lede` whose first sentence states the finding, and `p.meta` holding `<span>` items such as the date and the sources.
 - Use `h2` for sections and `h3` for subsections; the outline is built from them.
   Headings inside callouts, cards, figures, key-figure cards, question cards and `details` stay out of the outline, as does any heading with class `bn-notoc`.

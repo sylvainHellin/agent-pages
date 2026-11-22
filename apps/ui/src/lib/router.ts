@@ -1,14 +1,15 @@
 /* Hash routes (kept from the two old front ends):
-     #/                 library: project shelf + timeline of the lessons, the tutor's and the marked pages under the roots
-     #/p/<id>           one registry project
-     #/unlinked         lessons without a project
-     #/l/<slug>         read one lesson (slug page-<hash> for a marked page read in place)
+     #/                 the one list: every page, the tutor's lessons and the pages under the roots, by status and tag
+     #/p/<id>           the list of one registry project
+     #/unlinked         the list of pages without a project
+     #/reports[?area=a]  the list of one area (first folders under a root); without an area, the whole list
+     #/l/<slug>         read one lesson: a tutor lesson, or a page with the lesson tag (slug page-<hash>)
+     #/r/<url>          read one page in the app (url: its server path, encoded); a lesson goes on to #/l/<slug>
      #/new              new lesson: topic, project, shared link inbox   (#/links: old phone tab, same page)
      #/jobs             lesson and revision jobs
-     #/reports[?area=a]  report pages under the server's roots, newest first (pages without the lesson marker)
-     #/r/<url>          read one report page in the app (url: its server path, encoded)
      #/add?u=<url>&n=<note>   add a link (iOS Shortcut target), then #/new */
 import { useSyncExternalStore } from 'react'
+import type { Item } from './api'
 
 export type Route =
   | { name: 'home' }
@@ -17,7 +18,7 @@ export type Route =
   | { name: 'lesson'; slug: string }
   | { name: 'new' }
   | { name: 'jobs' }
-  | { name: 'reports'; area: string }
+  | { name: 'area'; area: string }
   | { name: 'page'; url: string }
   | { name: 'add'; url: string; note: string }
 
@@ -38,7 +39,10 @@ export function parse(hash: string): Route {
   if (parts[0] === 'unlinked') return { name: 'unlinked' }
   if (parts[0] === 'new' || parts[0] === 'links') return { name: 'new' }
   if (parts[0] === 'jobs') return { name: 'jobs' }
-  if (parts[0] === 'reports') return { name: 'reports', area: new URLSearchParams(qs || '').get('area') || '' }
+  if (parts[0] === 'reports') {
+    const area = new URLSearchParams(qs || '').get('area') || ''
+    return area ? { name: 'area', area } : { name: 'home' }
+  }
   if (parts[0] === 'add') {
     const q = new URLSearchParams(qs || '')
     return { name: 'add', url: q.get('u') || q.get('url') || q.get('text') || '', note: q.get('n') || q.get('note') || '' }
@@ -73,7 +77,9 @@ export function navigate(hash: string, opts: { replace?: boolean } = {}) {
 export const lessonHash = (slug: string) => `#/l/${encodeURIComponent(slug)}`
 export const projectHash = (id: string) => `#/p/${encodeURIComponent(id)}`
 export const pageHash = (url: string) => `#/r/${encodeURIComponent(url.replace(/^\//, ''))}`
-export const reportsHash = (area = '') => (area ? `#/reports?area=${encodeURIComponent(area)}` : '#/reports')
+export const areaHash = (area = '') => (area ? `#/reports?area=${encodeURIComponent(area)}` : '#/')
+/** Where a page of the list opens: the lesson reader for a lesson, else the page reader. */
+export const itemHash = (i: Pick<Item, 'slug' | 'url'>) => (i.slug ? lessonHash(i.slug) : pageHash(i.url))
 
 /** Absolute link to a route of this app (for "Copy link"). */
 export const hereUrl = (hash: string) => location.origin + location.pathname + hash

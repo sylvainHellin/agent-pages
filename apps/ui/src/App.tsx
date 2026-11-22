@@ -8,24 +8,22 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AppShell } from '@/components/shell'
 import { JobsView } from '@/views/JobsView'
-import { BoardView } from '@/views/LibraryView'
+import { ListView } from '@/views/LibraryView'
 import { NewLessonView } from '@/views/NewLessonView'
 import { PageView } from '@/views/PageView'
 import { ReaderView } from '@/views/ReaderView'
-import { ReportsView } from '@/views/ReportsView'
 
 export default function App() {
   const hash = useHash()
   const route = parse(hash)
   const desk = useIsDesktop()
-  const back = useRef('#/') // the list a lesson or report page was opened from
+  const back = useRef('#/') // the list a page was opened from
 
   // first load, and fresh lists whenever the app comes back to the front
   useEffect(() => {
-    const { loadLessons, loadInbox, loadPages } = useStore.getState()
-    loadLessons().catch((e) => toast.error(`Could not load the lessons: ${(e as Error).message}`))
+    const { loadInbox, loadPages } = useStore.getState()
+    loadPages().catch((e) => toast.error(`Could not load the pages: ${(e as Error).message}`))
     loadInbox().catch(() => {})
-    loadPages().catch(() => {})
     let last = Date.now()
     const again = () => {
       if (document.visibilityState !== 'visible' || Date.now() - last < 5000) return
@@ -69,8 +67,8 @@ export default function App() {
           ? 'New lesson · Agent Pages'
           : route.name === 'jobs'
             ? 'Jobs · Agent Pages'
-            : route.name === 'reports'
-              ? 'Reports · Agent Pages'
+            : route.name === 'area'
+              ? `${route.area} · Agent Pages`
               : 'Agent Pages'
     window.scrollTo(0, 0)
   }, [hash]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -81,10 +79,13 @@ export default function App() {
       view = <ReaderView slug={route.slug} backHash={back.current} />
       break
     case 'project':
-      view = <BoardView filter={{ kind: 'project', id: route.id }} />
+      view = <ListView scope={{ kind: 'project', id: route.id }} />
       break
     case 'unlinked':
-      view = <BoardView filter={{ kind: 'unlinked' }} />
+      view = <ListView scope={{ kind: 'unlinked' }} />
+      break
+    case 'area':
+      view = <ListView scope={{ kind: 'area', area: route.area }} />
       break
     case 'new':
     case 'add':
@@ -93,14 +94,11 @@ export default function App() {
     case 'jobs':
       view = <JobsView />
       break
-    case 'reports':
-      view = <ReportsView area={route.area} />
-      break
     case 'page':
-      view = <PageView url={route.url} backHash={back.current.startsWith('#/reports') ? back.current : '#/reports'} />
+      view = <PageView url={route.url} backHash={back.current} />
       break
     default:
-      view = <BoardView filter={{ kind: 'all' }} />
+      view = <ListView scope={{ kind: 'all' }} />
   }
 
   return (

@@ -2,27 +2,45 @@
    may sit behind `tailscale serve --set-path /tutor`. Every server URL is therefore resolved against
    the app root computed from the page location, never written as an absolute path. */
 
-export type Status = 'learning' | 'understood' | 'archived'
+/** open: to read or answer; sent: handed to an agent (set by Send to agent, open again once the page changes);
+    done; archived. */
+export type Status = 'open' | 'sent' | 'done' | 'archived'
+export const STATUSES: Status[] = ['open', 'sent', 'done', 'archived']
+/** What the reader can pick; sent is set by Send to agent only. */
+export const SETTABLE: Status[] = ['open', 'done', 'archived']
+export const LESSON_TAG = 'lesson'
 
-export interface Lesson {
-  slug: string
+/** One page of the one list (GET api/items): a page under the server's roots or a tutor lesson. */
+export interface Item {
+  id: string // its review id: PATCH api/items/<id>
+  key: string // what its status and tags are stored under: data-doc-id, else the URL; a tutor lesson's slug
+  url: string // server path: /documents/loc/x.html, /lessons/<slug>/ for a tutor lesson
   title: string
-  topic?: string
-  summary?: string
-  created: string
-  projects: string[]
-  tags: string[]
+  path: string // ~/Documents/loc/x.html
+  mtime: number
+  changed: number // the newer of the file's change and the last edit of its status, tags or details
+  root: string
+  area: string
   status: Status
-  updated?: number
-  opened?: number | null
-  counts?: { sections: number; questions: number; figures: number }
+  tags: string[] // "lesson" for tutor lessons and pages with the lesson marker
+  projects: string[]
   unknown_projects?: string[]
-  /** an in-place lesson: a page with the lesson marker under one of the server's roots, slug page-<hash> */
-  inplace?: boolean
-  url?: string // in-place: its server path, e.g. /documents/loc/x.html
-  path?: string // in-place: ~/Documents/loc/x.html
-  doc_id?: string | null // in-place: the page's data-doc-id, its storage key
+  topic: string
+  summary: string
+  sessions: string[]
+  origin: 'report' | 'tutor'
+  /** a lesson's slug (read at #/l/<slug>): the tutor's folder name, or page-<hash> for a marked page; null for a report */
+  slug: string | null
+  doc_id?: string | null
+  created: string // YYYY-MM-DD: the date in the file or folder name, else the file's date
+  counts?: { sections: number; questions: number; figures: number }
+  sent_at?: number
+  shared?: string[] // other pages with the same data-doc-id (their status cannot be set)
 }
+
+/** An item read in the lesson reader (#/l/<slug>): a tutor lesson or a marked page. */
+export type Lesson = Item & { slug: string }
+export const isLesson = (i: Item): i is Lesson => !!i.slug
 
 export interface Project {
   id: string
@@ -30,17 +48,6 @@ export interface Project {
   type?: string | null
   path?: string | null
   notes?: string
-}
-
-/** A report page under one of the server's roots (GET api/pages, newest first). */
-export interface ReportPage {
-  title: string
-  url: string // server path, e.g. /documents/loc/x.html
-  path: string // ~/Documents/loc/x.html
-  mtime: number
-  root: string
-  area: string
-  kind: 'report' // pages with the lesson marker are listed as lessons (api/lessons)
 }
 
 export interface InboxItem {
@@ -77,19 +84,17 @@ export function rootUrl(path: string): string {
   return new URL(path, APP_ROOT).href
 }
 
-export const lessonUrl = (slug: string) => rootUrl(`lessons/${encodeURIComponent(slug)}/`)
+/** Where a page is served: its own server path (a tutor lesson's is /lessons/<slug>/). */
+export const pageUrl = (i: Pick<Item, 'url'>) => rootUrl(i.url.replace(/^\//, ''))
 
-/** Where a lesson's page is served: the lessons folder, or the in-place page's own server path. */
-export const lessonPageUrl = (l: Pick<Lesson, 'slug' | 'inplace' | 'url'>) => (l.inplace && l.url ? rootUrl(l.url.replace(/^\//, '')) : lessonUrl(l.slug))
-
-/** The key the page stores its review under (report.js docIdOf): data-doc-id, else the page's path. */
-export function lessonDocKey(l: Pick<Lesson, 'slug' | 'inplace' | 'url' | 'doc_id'>): string {
-  if (!l.inplace) return l.slug
+/** The key a lesson page stores its review under (report.js docIdOf): a tutor lesson's slug, else data-doc-id, else the page's path. */
+export function lessonDocKey(l: Pick<Item, 'slug' | 'origin' | 'url' | 'doc_id'>): string {
+  if (l.origin === 'tutor' && l.slug) return l.slug
   if (l.doc_id && l.doc_id !== 'report-slug') return l.doc_id
-  return new URL(lessonPageUrl(l)).pathname
+  return new URL(pageUrl(l)).pathname
 }
 
-/** The folder of an in-place lesson's path, for the reader's bar. */
+/** The folder of a page's path, for the reader's bar. */
 export const folderOf = (path: string) => path.replace(/\/[^/]*$/, '') || path
 
 export class ApiError extends Error {}

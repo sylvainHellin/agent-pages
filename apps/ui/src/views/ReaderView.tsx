@@ -8,17 +8,18 @@
    Links between lessons inside the page set this window's hash (#/l/<slug>), so the same iframe switches
    lesson with location.replace (no extra history entries).
    What the app adds inside the page (reader.css, text size, pinch, tap-to-focus) is src/lib/reader-page.ts.
-   An in-place lesson (a marked page under a root, slug page-<hash>) loads from its own server path, syncs
-   its review under the page's storage key, shows its folder in the bar and can move back to the reports.
+   A marked page under a root (the lesson tag, slug page-<hash>) loads from its own server path, syncs its review
+   under the page's storage key and shows its folder in the bar; taking its lesson tag away (Tags) removes the
+   marker from the file and sends it on to the page reader (#/r/<url>). The bar carries the status and the tags of
+   every lesson (PATCH api/items/<id>).
    Focus mode: a tap on the text (or Esc) folds the bars away; the page is scrolled by the same amount the
    iframe moves, so the line being read stays where it is. */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AlertTriangleIcon,
   ArrowUpRightIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  FileTextIcon,
   FolderPlusIcon,
   LinkIcon,
   Maximize2Icon,
@@ -28,18 +29,18 @@ import {
   SendIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, folderOf, isActive, lessonDocKey, lessonPageUrl, type Lesson } from '@/lib/api'
+import { folderOf, isActive, isLesson, lessonDocKey, pageUrl, type Lesson } from '@/lib/api'
 import { dayLabel, plural } from '@/lib/format'
 import { copyText, useIsDesktop } from '@/lib/hooks'
 import { applyScale, dressPage, SCALE_MAX, SCALE_MIN, SCALE_STEP, setPageFocus, stackTables, topAnchor, useTextScale, type PageHooks } from '@/lib/reader-page'
-import { hereUrl, lessonHash, navigate, pageHash } from '@/lib/router'
+import { hereUrl, lessonHash, navigate } from '@/lib/router'
 import { useStore } from '@/lib/store'
 import * as sync from '@/lib/sync'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { IconTip, Kbd, ProjectChip, Spinner } from '@/components/bits'
-import { EditLesson, ProjectPicker, StatusMenu } from '@/components/lesson-meta'
+import { EditDetails, ProjectPicker, StatusMenu, TagsButton } from '@/components/lesson-meta'
 import { ThemeMenuItem } from '@/components/theme-toggle'
 import { borrowPageTokens } from '@/lib/theme'
 import { NotFound } from '@/components/lessons'
@@ -116,19 +117,9 @@ function ReaderBar({
 }) {
   const desk = useIsDesktop()
   const unlink = useStore((s) => s.unlinkProject)
-  const setPageKind = useStore((s) => s.setPageKind)
   const [picker, setPicker] = useState(false)
   const [edit, setEdit] = useState(false)
-  const toReports = async () => {
-    if (!l.url) return
-    try {
-      const r = await setPageKind(l.url, 'report')
-      navigate(pageHash(r.url || l.url), { replace: true })
-      toast.success('Moved to reports', { description: 'The lesson marker is removed from the page file.' })
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-  }
+  const inplace = l.origin === 'report'
   const copy = async () => ((await copyText(hereUrl(lessonHash(l.slug)))) ? toast.success('Link copied') : toast.error('Could not copy'))
   const go = (x?: Lesson) => x && navigate(lessonHash(x.slug))
   const sub = [l.topic, dayLabel(l.created, true)].filter(Boolean).join(' · ')
@@ -149,7 +140,7 @@ function ReaderBar({
           <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground desk:mt-0 desk:max-w-[16rem] desk:shrink-0 desk:text-xs" title={sub}>
             {sub}
           </div>
-          {l.inplace && l.path ? (
+          {inplace && l.path ? (
             <div className="hidden min-w-0 shrink truncate font-mono text-[11px] text-muted-foreground desk:block" title={l.path}>
               {folderOf(l.path)}
             </div>
@@ -157,7 +148,7 @@ function ReaderBar({
         </div>
         <div className="hidden min-w-0 shrink items-center gap-1 overflow-hidden desk:flex">
           {l.projects.map((p) => (
-            <ProjectChip key={p} id={p} warn={l.unknown_projects?.includes(p)} onRemove={() => unlink(l.slug, p).catch(() => {})} />
+            <ProjectChip key={p} id={p} warn={l.unknown_projects?.includes(p)} onRemove={() => unlink(l.id, p).catch(() => {})} />
           ))}
           {l.projects.length ? (
             <IconTip label="Link to projects" side="bottom">
@@ -172,7 +163,8 @@ function ReaderBar({
           )}
         </div>
         <span aria-hidden className="mx-1 hidden h-4 w-px shrink-0 bg-border desk:block" />
-        <StatusMenu lesson={l} className="shrink-0" />
+        <TagsButton item={l} className="shrink-0 max-desk:px-1.5" />
+        <StatusMenu item={l} className="shrink-0" />
         <DropdownMenu>
           <IconTip label="More" side="bottom">
             <DropdownMenuTrigger asChild>
@@ -207,28 +199,23 @@ function ReaderBar({
               <LinkIcon /> Copy link
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <a href={lessonPageUrl(l)} target="_blank" rel="noopener">
+              <a href={pageUrl(l)} target="_blank" rel="noopener">
                 <ArrowUpRightIcon /> Open the page alone
               </a>
             </DropdownMenuItem>
-            {l.inplace && l.url ? (
+            {inplace && l.path ? (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={toReports}>
-                  <FileTextIcon /> Move to reports
-                </DropdownMenuItem>
-                {l.path ? (
-                  <div className="truncate px-2 pt-1 pb-1.5 font-mono text-[11px] text-muted-foreground desk:hidden" title={l.path}>
-                    {folderOf(l.path)}
-                  </div>
-                ) : null}
+                <div className="truncate px-2 pt-1 pb-1.5 font-mono text-[11px] text-muted-foreground desk:hidden" title={l.path}>
+                  {folderOf(l.path)}
+                </div>
               </>
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <ProjectPicker slug={l.slug} open={picker} onOpenChange={setPicker} />
-      <EditLesson lesson={l} open={edit} onOpenChange={setEdit} />
+      <ProjectPicker id={l.id} open={picker} onOpenChange={setPicker} />
+      <EditDetails item={l} open={edit} onOpenChange={setEdit} />
     </header>
   )
 }
@@ -375,10 +362,12 @@ const typingIn = (t: EventTarget | null) => {
 
 export function ReaderView({ slug, backHash }: { slug: string; backHash: string }) {
   const desk = useIsDesktop()
-  const lessons = useStore((s) => s.lessons)
-  const loaded = useStore((s) => s.lessonsLoaded)
-  const loadLessons = useStore((s) => s.loadLessons)
+  const pages = useStore((s) => s.pages)
+  const loaded = useStore((s) => s.pagesLoaded)
+  const loadPages = useStore((s) => s.loadPages)
   const jobs = useStore((s) => s.jobs)
+  /* the lessons, newest first by their date, for Earlier and Later */
+  const lessons = useMemo(() => pages.filter(isLesson).sort((a, b) => (b.created || '').localeCompare(a.created || '') || b.slug.localeCompare(a.slug)), [pages])
   const i = lessons.findIndex((l) => l.slug === slug)
   useEffect(() => () => borrowPageTokens(null), []) // the library gets the app theme back
   const lesson = i >= 0 ? lessons[i] : undefined
@@ -519,11 +508,11 @@ export function ReaderView({ slug, backHash }: { slug: string; backHash: string 
   useEffect(() => {
     if (loaded && !lesson && retried?.slug !== slug) {
       setRetried({ slug, done: false })
-      loadLessons()
+      loadPages()
         .catch(() => {})
         .finally(() => setRetried({ slug, done: true }))
     }
-  }, [loaded, lesson, slug, retried, loadLessons])
+  }, [loaded, lesson, slug, retried, loadPages])
 
   // put the lesson into the iframe: push the one we leave, pull this one, then load it in place
   const exists = !!lesson
@@ -535,7 +524,7 @@ export function ReaderView({ slug, backHash }: { slug: string; backHash: string 
     setReady(false)
     const target = lessons.find((l) => l.slug === slug)!
     sync.setKey(slug, lessonDocKey(target))
-    const url = lessonPageUrl(target)
+    const url = pageUrl(target)
     sync.pull(slug).then(() => {
       const f = frameRef.current
       if (cancelled || !f) return
@@ -546,7 +535,6 @@ export function ReaderView({ slug, backHash }: { slug: string; backHash: string 
         f.src = url
       }
     })
-    api(`lessons/${encodeURIComponent(slug)}/opened`, { method: 'POST' }).catch(() => {})
     return () => {
       cancelled = true
     }

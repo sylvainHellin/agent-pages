@@ -13,6 +13,9 @@ n/a = replaced at that size by design (noted). Jobs ran against a stub `tuios` (
 `TUTOR_PI=/bin/false`), so the whole queued → running → done/attention flow was real server code
 without an agent. No console errors or page errors at either size.
 
+2026-11-22 (one list, branch one-list): rows marked **L** were exercised on a temp server over copies of the real
+pages (152: 149 under the roots, 3 tutor lessons) in BrowserOS through Playwright, at 1440×900 and 390×844.
+
 2026-11-06 (redesign: month board, pinch text size, focus mode, new look): rows marked **R** were
 exercised again after the redesign; rows 57-65 are new. Touch input came from CDP `Input.dispatchTouchEvent`
 with touch emulation (Chrome), so the two-finger fallback and the pointer-based tap logic ran for real;
@@ -22,27 +25,27 @@ iOS `gesture*` events and Safari's own zoom cannot be produced headless.
 |---|---|---|---|---|
 | 1 | One build at `/` and `/app/`, root-relative URLs | ✓ | ✓ | test server and live (`/tutor/`, `/tutor/app/`): assets, `review-sync.js` from `<root>/lessons/` |
 | 2 | Trailing-slash fix | ✓ | ✓ | live `https://…/tutor` → `/tutor/` |
-| 3 | Desktop sidebar (Library / New / Jobs badge / projects / registry) | ✓ | n/a | phone uses the tab bar (4) |
-| 4 | Phone header + tab bar + badge, 44 px targets, safe areas | n/a | ✓ | desktop uses the sidebar (3) |
+| 3 | Desktop sidebar (All pages / New / Jobs badge / projects / areas / vault) **L** | ✓ | n/a | phone uses the tab bar (4) |
+| 4 | Phone header + tab bar (Pages / New / Jobs) + badge, 44 px targets, safe areas **L** | n/a | ✓ | desktop uses the sidebar (3) |
 | 5 | Web Clip: manifest, icons, apple meta, standalone | ✓ | ✓ | served at both paths (curl); iOS standalone itself not testable headless |
 | 6 | Refresh button, toast "Updated" | ✓ | ✓ | sidebar button / header button |
 | 7 | Toasts (errors, confirmations) | ✓ | ✓ | e.g. "Write a topic or select a link", PATCH errors via store |
 | 8 | Document title per view | ✓ | ✓ | lesson title, New, Jobs, project |
-| 9 | By month with counts **R** | ✓ | ✓ | now the month board (57); footer "10 lessons in November · 7 projects · 4 understood" |
+| 9 | The one list, newest change first; List / Month **L** | ✓ | ✓ | 152 pages (149 reports, 3 tutor lessons) under Today / Yesterday / month headings; Month shows the same filtered pages on the board, footer "10 pages in November · 2 projects · 2 done" |
 | 10 | Lesson facts (topic, title, summary, date, projects, tags, counts, revised, status) **R** | ✓ | ✓ | D: hover preview of a chip, "+N" popover rows (title, topic · projects); P: list rows (title, projects, status) |
 | 11 | Projects with counts + "Not linked yet" **R** | ✓ | ✓ | D: sidebar list (dot, name, count); P: header list menu; the tile shelf was replaced |
 | 12 | ~~Drag a lesson onto a project~~ | n/a | n/a | removed in the redesign; linking stays in the reader bar (24) |
 | 13 | `#/p/<id>` project page **R** | ✓ | ✓ | facts, notes, registry link, copy link, the project's board (render2bim: 1 lesson in November) |
 | 14 | `#/unlinked` **R** | ✓ | ✓ | board with the one lesson without a project |
 | 15 | Search, `/` focuses it **R** | ✓ | ✓ | `/` + "urdf" → 1 chip in November, footer "Oct 2026 (1)" jumps; no match → "No match in November"; Esc clears |
-| 16 | Archived toggle, persisted **R** | ✓ | ✓s | `tl-archived` set; the archived lesson appears on the board |
+| 16 | Status chips Open / Sent / Done / Archived / All **L** | ✓ | ✓ | Open 149, Done 2, Archived 1, All 152; Done after a status change lists the changed page first |
 | 17 | Stats **R** | ✓ | ✓ | the board footer (9) |
 | 18 | Empty library how-to, empty jobs | ✓ | ✓ | server on an empty lessons dir |
 | 19 | iframe location.replace (no extra history) | ✓ | ✓s | D: a cross-link adds exactly one entry (the hash), Back returns to the first lesson; P: same iframe switched |
 | 20 | reader.css + stacked wide tables **R** | ✓s | ✓ | P: `#tutor-app-css` present, 3 tables stacked (also after a cross-link); D loads it too, its rules apply < 720 px only |
-| 21 | "Opened" ping | ✓ | ✓ | `state.json` opened times |
+| 21 | ~~"Opened" ping~~ | n/a | n/a | removed with the one list: nothing showed it |
 | 22 | Reader bar: back, date, topic, title | ✓ | ✓ | |
-| 23 | Status learning / understood / archived (PATCH) | ✓ | ✓ | lesson.json checked |
+| 23 | Status Open / Done / Archived, Sent shown (PATCH api/items) **L** | ✓ | ✓s | lesson reader menu and report page dialog; `_data/items.json` checked |
 | 24 | Project chips with unlink, picker (search, keyboard, toggle) **R** | ✓ | ✓ | D: × and picker typed "process2" + Enter; P: sheet, tap toggles; 2026-11-06: picker opened at both sizes |
 | 25 | Edit topic / title / summary / tags **R** | ✓ | ✓ | D dialog (topic), P sheet (tags); 2026-11-06: dialog and sheet opened from ⋯ |
 | 26 | Earlier / later | ✓ | ✓ | both in the ⋯ menu since the redesign |
@@ -86,44 +89,47 @@ iOS `gesture*` events and Safari's own zoom cannot be produced headless.
 | 64 | Focus mode by tap / Esc / ⋯, hint | ✓ | ✓ | tap text → bars and the page's toolbar hidden, iframe full height, hint once; second tap back. No toggle on a link, a drag-scroll, a tap with a selection, a double click, a tap 0.4 s after a pinch |
 | 65 | Look from the lesson theme | ✓ | ✓ | 2026-11-11, headless Chrome (Playwright), lesson_theme tum: body #FFFFFF / ink #1A1A1A, primary button #0065BD, Helvetica Neue; dark #07192B, primary #64A0C8; api/theme.css blocked → zinc, teal, Pretendard |
 | 66 | Light / dark shared with the pages | ✓ | ✓ | 2026-11-11, 1440 and 390 px: OS dark with nothing stored → app and lesson dark (src os); More → Dark mode off → app light, page `data-theme=light` `data-theme-src=stored`, `bn-theme=light`; the page's own #bn-theme → app dark; theme-color follows the background; #bn-theme at 390 px inside the screen and on top at 100, 160 and 200 % text |
-| 67 | One bar on a report page | ✓ | ✓ | 2026-11-12, 1440 and 390 px, basenord page: Back, Move to lessons and Open alone inside the page's own bar, no app header; cross-origin page keeps the app header |
-| 68 | Report areas in two levels | ✓ | ✓ | 2026-11-12, 1440 and 500 px: sidebar All reports / groups, tum opens its four sub-areas; rows show the part below the area; phone header menu picks the area |
+| 67 | One bar on a report page **L** | ✓ | ✓s | basenord page: Back, status, tags and Open alone inside the page's own bar; a page without the bar gets the app header with the same controls |
+| 68 | Areas in two levels **L** | ✓ | ✓s | sidebar Areas under Projects, tum opens its sub-areas; phone header menu lists projects then areas |
+| 69 | Tag chips filter the list **L** | ✓ | ✓ | #lesson picked: 16 pages with All, "Clear tags" |
+| 70 | Tag editor, the lesson tag moves the page between readers **L** | ✓ | ✓s | report page: Done, tags "School, Family " → #school #family, Tag as lesson → `#/l/page-…` and the marker in the file; Remove tag lesson in the lesson reader → `#/r/…`, marker gone |
+| 71 | Old links still open the page **L** | ✓ | ✓s | `#/r/<url>` of a lesson page goes on to `#/l/<slug>`; `#/reports` is the list |
 
 Not ported: nothing. Changed on purpose: the phone's one-tap Learning/Understood pill is now the same
-three-state status menu as the desktop; the phone's "Make a lesson" bottom sheet is the New page itself
+status menu as the desktop; the phone's "Make a lesson" bottom sheet is the New page itself
 (topic, project and search are always visible); the phone tab "Links" is now "New" (`#/links` still works)
 plus a "Jobs" tab.
 
 ## App shell
 1. One build served at `/` and `/app/` (Vite `base: './'`); API, lessons and assets resolved against the app root (`./` or `../`). **W+M**
 2. Trailing-slash fix behind `tailscale serve` (`/tutor` → `/tutor/`). **W**
-3. Desktop: sidebar with Library / New lesson / Jobs (active-job badge), project list, archived toggle, Registry link. **W** (+ jobs nav **new**)
-4. Phone: header (title + refresh), bottom tab bar Lessons / New / Jobs with active-job badge, 44 px targets, safe-area insets. **M**
+3. Desktop: sidebar with All pages (count) / New lesson / Jobs (active-job badge), the projects with "Not linked yet", the areas, Vault link. **W** (+ jobs nav **new**)
+4. Phone: header (list picker or title + refresh), bottom tab bar Pages / New / Jobs with active-job badge, 44 px targets, safe-area insets. **M**
 5. Web Clip: manifest, icons 180/192/512, apple meta tags, standalone display, theme colour. **M**
-6. Refresh button (reload lessons + inbox, toast "Updated"). **M**
+6. Refresh button (reload the pages + inbox, toast "Updated"). **M**
 7. Toasts for errors and confirmations (Sonner). **W+M**
 8. Document title per view. **W**
 
-## Library
-9. Lessons by month, with month counts (lessons · projects · understood): one month at a time on the board (57), counts in its footer. **W+M**
-10. Lesson facts: topic, title, summary, date + weekday, project names (orange when the project left the registry), tags, section/question counts, "revised … ago", status. Desktop: hover preview of a day chip; phone: list rows (title, projects, status). **W+M**
-11. Projects with their lesson counts + "Not linked yet": desktop sidebar list, phone header menu. (Until 2026-11-05 a shelf of project tiles.) **W**
+## The list (`#/`)
+9. Home is the one list of every page: the tutor's lessons and the pages under the server's roots (`GET api/items`), newest change first (the file's change or the last status, tag or detail edit) under Today / Yesterday / This week / month headings; a List / Month switch (kept in localStorage `ap-view`) shows the same filtered pages on the month board (57), with month counts (pages · projects · done) in its footer. **new**
+10. Page facts: list rows with the status mark, title, area · topic, projects, tags and the time; on the board a hover preview of a day chip (topic, title, summary, date, projects, tags, section/question counts, "revised … ago", status) and phone rows (title, projects, status). **W+M**
+11. Projects with their page counts + "Not linked yet", then the areas: desktop sidebar list, phone header menu; counts follow the status picked in the list. **W**
 12. ~~Drag a lesson onto a project tile to link it~~: removed with the board (2026-11-06); link from the reader bar (24). **W**
-13. Project filter: `#/p/<id>` page with registry facts, notes, "Open in registry", "Copy link to this page", topics, its board; empty state. **W**
-14. `#/unlinked`: lessons without a project. **W**
-15. Search over title, topic, summary, slug, projects, tags; `/` focuses it. **W+M**
-16. Show archived toggle (persisted). **W**
-17. Stats: n lessons in the month · m projects · k understood (board footer). **W**
-18. Empty library how-to. **W+M**
+13. Project filter: `#/p/<id>` page with registry facts, notes, "Open in registry", "Copy link to this page", topics, its list; empty state. **W**
+14. `#/unlinked`: pages without a project. **W**
+15. Search over title, topic, summary, path, slug, projects, tags (every word must match); `/` focuses it. **W+M**
+16. Status chips Open (the default) / Sent / Done / Archived / All, each with its count in the list as filtered by tags and search. **new**
+17. Stats: n pages, m changed this week (list header); n pages in the month · m projects · k done (board footer). **W**
+18. Empty list how-to. **W+M**
 
-## Reader (`#/l/<slug>`)
+## Readers (`#/l/<slug>` for a lesson, `#/r/<url>` for any other page)
 19. Lesson page in an iframe; slug changes replace the iframe location (no extra history entries). **M**
 20. `reader.css` injected into the page (media-gated to phone widths) + wide tables stacked as cards. **M**
-21. "Opened" ping (`POST api/lessons/<slug>/opened`). **W+M**
+21. ~~"Opened" ping~~: removed with the one list; nothing showed it. **W+M**
 22. Reader bar: back, date, topic, title. **W+M**
-23. Status Learning / Understood / Archived (PATCH). **W+M**
+23. Status Open / Done / Archived in the bar of both readers (`PATCH api/items/<id>`); Sent shows while an agent has the page (Send to agent sets it, a change of the page file opens it again). **W+M**
 24. Project chips with unlink, "+ project" picker (search, keyboard, toggle). **W**
-25. Edit topic / title / summary / tags (PATCH): dialog on desktop, sheet on phone. **W**
+25. Edit topic / title / summary (PATCH): dialog on desktop, sheet on phone; tags have their own editor (70). **W**
 26. Earlier / later lesson. **W**
 27. Copy link to the lesson; open the page alone in a new tab. **W**
 28. Cross-lesson links inside a page switch the app's reader (`report.js` sets `#/l/<slug>` on the parent). **W+M**
@@ -156,20 +162,23 @@ plus a "Jobs" tab.
 51. Jobs list with status badges: queued ("waits for the job before it"), running (writing / revising, started … ago), attention (waiting in tuios session "tutor"), done (Read), failed (error), cancelled. **W+M**
 52. Log viewer (agent window screen), refreshed while open, stays scrolled to the bottom. **W+M**
 53. Stop (running / attention) and Cancel (queued). **W+M**
-54. 5 s polling while a job is active; "A lesson is ready" toast and lesson list reload. **W+M**
+54. 5 s polling while a job is active; "A lesson is ready" toast and list reload. **W+M**
 55. Polling refreshes lists only: never resets, re-mounts or blurs what is being typed. **W+M**
-56. Refresh lessons and jobs when the window gets focus / becomes visible. **W+M**
+56. Refresh the pages and jobs when the window gets focus / becomes visible. **W+M**
 
 ## Board, reading and look (redesign 2026-11-06)
-57. Home is one month as a calendar board: header = month, ‹ ›, Today, search; Mon-first 7-column grid; ← → change the month; opens on the newest lesson's month; the month is kept per list (`#/`, `#/p/<id>`, `#/unlinked`) while a lesson is open. **new**
-58. A day shows its lessons as one-line chips: the project's colour as a small dot (ring = learning, filled = understood, grey = archived) + the title; click opens `#/l/<slug>`; hover shows the facts (10); more than 3 → "+N more" popover with the whole day; today has its day number filled in the primary colour. **new**
-59. Phone (< 900 px): the month compact (day numbers with coloured dots) and that month's lessons listed by day under it; tapping a day scrolls the list to that day. **new**
-60. Search, the project filter (sidebar / phone header menu) and Archived filter the board; with a search the footer counts matches in the month and links the other months that have some. **new**
+57. Month (the list's switch) shows the pages as a calendar board by the date in their name: header = month, ‹ ›, Today; Mon-first 7-column grid; ← → change the month; opens on the newest page's month; the month is kept per list (`#/`, `#/p/<id>`, `#/unlinked`, an area) while a page is open. **new**
+58. A day shows its pages as one-line chips: the project's colour as a small dot (ring = open, ring with a centre = sent, filled = done, grey = archived) + the title; click opens the page's reader; hover shows the facts (10); more than 3 → "+N more" popover with the whole day; today has its day number filled in the primary colour. **new**
+59. Phone (< 900 px): the month compact (day numbers with coloured dots) and that month's pages listed by day under it; tapping a day scrolls the list to that day. **new**
+60. Search, the status and tag chips and the project or area filter (sidebar / phone header menu) filter the board; with a search the footer counts matches in the month and links the other months that have some. **new**
 61. Pinch on a phone changes the text size of the lesson (80-200 %), so lines rewrap to the screen instead of running off it: the page's own zoom is off in the reader, the root font size follows the fingers (iOS `gesture*` events, two-finger touch distance elsewhere), the line under the fingers stays in place, and the size is kept for every lesson on that device (localStorage `tl-text-scale`). Done in `src/lib/reader-page.ts` + `public/reader.css`; the lesson HTML is unchanged. **new**
 62. Text size A− / percentage (reset) / A+ in the reader's ⋯ menu at both sizes. **new**
 63. At large text images, videos and SVG stay within the screen; code, formulas and unstacked tables scroll sideways; question rows and long badges wrap. **new**
 64. Focus mode: a single tap on the lesson text (not on a link, button, field, answer, summary, figure, comment or the page's controls; not after a scroll, a text selection or a pinch) hides the app bar, the review bar and the page's own toolbar; tap again to bring them back; Esc or ⋯ → Hide controls on desktop; a one-time hint "Tap the text to show controls"; safe-area insets stay. (The reader never shows the phone tab bar.) **new**
 65. Look: the colours and fonts of the app theme (`app_theme` in the config, else `lesson_theme`; Prussian ink and ocean blue for `basenord`, TUM blue #0065BD and Helvetica Neue for `tum`). While a lesson or a report page fills the screen, the app's bars take that page's own tokens (`borrowPageTokens` in `src/lib/theme.ts`), so a TUM lesson sits in a TUM frame; leaving it gives the app theme back. The server's `api/theme.css` carries the theme's tokens (report.css's, then the theme file's, light and dark) renamed `--pg-*`; `src/index.css` maps the shadcn tokens onto them (background = page `--bg`, popover and sidebar = `--surface`, muted and hover = `--surface-2`, foreground = `--ink`, muted text = `--muted`, border = `--line`, field border = `--line-strong`, primary = the theme's brand colour, attention text = the theme's `--accent`, fonts = `--font`, `--font-display`, `--font-mono`). When that stylesheet does not load, the app keeps its own look: Pretendard, zinc neutrals, teal #0e6e64. Also: desaturated project colours as dots, 13-14 px UI text, hairlines instead of nested cards, radius 8-10 px, ghost icon buttons with tooltips, 150 ms transitions; translucent blurred phone header and tab bar; New lesson in one column with a slim sticky action bar. **new**
 66. Light and dark, one state with the pages: the same localStorage key `bn-theme` and the same fallback to the OS setting as `report.js`, `data-theme` on the app's `<html>` before the first paint (index.html). A switch in the desktop sidebar header, the phone header, the report page bar and the reader's ⋯ menu changes the app and every open page iframe at once (`data-theme`, `data-theme-src="stored"`); the page's own button (#bn-theme) changes the app too (MutationObserver on the page's `<html>`, and the storage event). `<meta name=theme-color>` follows the background, so the iOS status bar matches. Done in `src/lib/theme.ts` and `src/components/theme-toggle.tsx`. **new**
-67. A report page (#/r/...) keeps a single top bar, its own: the app puts Back, Move to lessons and Open alone into the page's bar (same origin), and shows its own header only when it cannot reach the page. **new**
-68. Reports grouped by area in two levels: the sidebar (desktop) and the header menu (phone) list All reports, then the groups (first folder) with counts, a picked group opening its sub-areas; a row names only the area below the one picked; the Show archived switch stays with the lessons. **new**
+67. A page in the page reader (#/r/...) keeps a single top bar, its own: the app puts Back, a status button, a tags button and Open alone into the page's bar (same origin); both buttons open the Status and tags dialog (status, tags, projects, Edit details). The app shows its own header, with the status menu and the tags button, only when it cannot reach the page. **new**
+68. Areas in two levels: the sidebar (desktop) and the header menu (phone) list the groups (first folder) with counts after the projects, a picked group (`#/reports?area=<a>`) opening its sub-areas; a row names only the area below the one picked. **new**
+69. Tag chips under the status chips: the 12 most used tags of the pages in view (+N more), several can be picked (a page must carry them all), Clear tags. **new**
+70. Tags on every page, in both readers (tags button with the count; dialog on desktop, sheet on phone): × removes one, the field adds one or several (Enter, comma), suggestions from the list's tags, lower case. The lesson tag of a page under a root writes or removes the lesson marker in the page file and moves the page to the other reader; a tutor lesson keeps its lesson tag. **new**
+71. Old links keep working: `#/l/<slug>` opens a lesson, `#/r/<url>` of a page with the lesson tag goes on to `#/l/<slug>`, `#/reports` is the list and `#/reports?area=<a>` one area. **new**

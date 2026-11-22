@@ -1,14 +1,15 @@
-/* The library home: one month as a calendar.
-   Desktop: a 7-column month grid (Mon first); each day lists its lessons as one-line chips, "+N more" opens the rest.
-   Phone: the same month compact (day numbers with coloured dots) and the month's lessons by day below it;
+/* The month board of the list (views/LibraryView.tsx, Month): the pages in view by the day in their name (created).
+   Desktop: a 7-column month grid (Mon first); each day lists its pages as one-line chips, "+N more" opens the rest.
+   Phone: the same month compact (day numbers with coloured dots) and the month's pages by day below it;
    tapping a day scrolls the list to it.
-   A chip's dot is the project's colour; its shape is the status: ring = learning, filled = understood. */
+   A chip's dot is the project's colour; its shape is the status: ring = open, ring with a centre = sent,
+   filled = done, grey = archived. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { ChevronLeftIcon, ChevronRightIcon, SearchIcon, XIcon } from 'lucide-react'
-import type { Lesson } from '@/lib/api'
+import type { Item } from '@/lib/api'
 import { addMonths, ago, dayLabel, dkey, longDay, MONTHS, monthWeeks, NO_PROJECT_COLOR, pdate, plural, projectColor, todayKey, WEEK_MON, ymKey } from '@/lib/format'
-import { lessonHash } from '@/lib/router'
+import { itemHash } from '@/lib/router'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -16,15 +17,15 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/h
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { IconTip, Kbd, ProjectDot, STATUS_LABEL, StatusBadge, StatusMark } from './bits'
 
-/** The colour a lesson is drawn in: the filtered project if it has it, else its first project. */
-export function lessonColor(l: Lesson, prefer?: string): string {
+/** The colour a page is drawn in: the filtered project if it has it, else its first project. */
+export function itemColor(l: Item, prefer?: string): string {
   if (prefer && l.projects.includes(prefer)) return projectColor(prefer)
   return l.projects.length ? projectColor(l.projects[0]) : NO_PROJECT_COLOR
 }
 
-export function groupByDay(lessons: Lesson[]): Map<string, Lesson[]> {
-  const m = new Map<string, Lesson[]>()
-  for (const l of lessons) {
+export function groupByDay(items: Item[]): Map<string, Item[]> {
+  const m = new Map<string, Item[]>()
+  for (const l of items) {
     const k = (l.created || '').slice(0, 10)
     const a = m.get(k)
     if (a) a.push(l)
@@ -33,9 +34,10 @@ export function groupByDay(lessons: Lesson[]): Map<string, Lesson[]> {
   return m
 }
 
-/** The month a board opens on: the newest lesson's (lessons come newest first), else this month. */
-export function defaultMonth(lessons: Lesson[]): string {
-  return (lessons[0]?.created || '').slice(0, 7) || ymKey(new Date())
+/** The month a board opens on: the newest page's (by its date), else this month. */
+export function defaultMonth(items: Item[]): string {
+  const newest = items.reduce((a, i) => ((i.created || '') > a ? i.created : a), '')
+  return newest.slice(0, 7) || ymKey(new Date())
 }
 
 /* ---------- header: month, ‹ ›, Today, search ---------- */
@@ -100,8 +102,8 @@ export function SearchField({ className, compact }: { className?: string; compac
             e.currentTarget.blur()
           }
         }}
-        placeholder="Search lessons"
-        aria-label="Search lessons"
+        placeholder="Search pages"
+        aria-label="Search pages"
         className={cn(
           'w-full min-w-0 rounded-md border border-transparent bg-foreground/[0.04] pr-8 pl-8 text-[13px] transition-[border-color,background-color,box-shadow] duration-150 outline-none placeholder:text-faint hover:bg-foreground/[0.06] focus:border-ring/60 focus:bg-card focus:ring-3 focus:ring-ring/15 [&::-webkit-search-cancel-button]:hidden',
           compact ? 'h-9 text-base' : 'h-8',
@@ -123,11 +125,11 @@ export function SearchField({ className, compact }: { className?: string; compac
   )
 }
 
-/* ---------- a lesson: chip, preview, row ---------- */
+/* ---------- a page: chip, preview, row ---------- */
 
-function LessonPreview({ lesson: l }: { lesson: Lesson }) {
+function ItemPreview({ item: l }: { item: Item }) {
   const c = l.counts
-  const revised = l.updated && l.updated * 1000 - pdate(l.created).getTime() > 36 * 3600 * 1000 ? `revised ${ago(l.updated)}` : ''
+  const revised = l.mtime && l.mtime * 1000 - pdate(l.created).getTime() > 36 * 3600 * 1000 ? `revised ${ago(l.mtime)}` : ''
   const facts = [c?.sections ? plural(c.sections, 'section') : '', c?.questions ? plural(c.questions, 'question') : '', revised].filter(Boolean)
   return (
     <div className="flex flex-col gap-2">
@@ -164,42 +166,42 @@ function LessonPreview({ lesson: l }: { lesson: Lesson }) {
   )
 }
 
-function LessonChip({ lesson: l, prefer, faded }: { lesson: Lesson; prefer?: string; faded?: boolean }) {
+function ItemChip({ item: l, prefer, faded }: { item: Item; prefer?: string; faded?: boolean }) {
   return (
     <HoverCard openDelay={500} closeDelay={60}>
       <HoverCardTrigger asChild>
         <a
-          href={lessonHash(l.slug)}
+          href={itemHash(l)}
           data-slot="lesson-chip"
           aria-label={`${l.title} (${STATUS_LABEL[l.status]})`}
           className={cn(
             'flex h-[22px] min-w-0 shrink-0 items-center gap-1.5 rounded-[5px] px-1.5 text-[12px] leading-none transition-colors duration-150 outline-none hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring/30',
-            l.status === 'learning' ? 'text-foreground' : 'text-muted-foreground',
+            l.status === 'open' ? 'text-foreground' : 'text-muted-foreground',
             faded && 'opacity-45',
           )}
         >
-          <StatusMark status={l.status} color={lessonColor(l, prefer)} />
+          <StatusMark status={l.status} color={itemColor(l, prefer)} />
           <span className="truncate">{l.title}</span>
         </a>
       </HoverCardTrigger>
       <HoverCardContent side="right" align="start">
-        <LessonPreview lesson={l} />
+        <ItemPreview item={l} />
       </HoverCardContent>
     </HoverCard>
   )
 }
 
-function DayList({ day, lessons, prefer }: { day: string; lessons: Lesson[]; prefer?: string }) {
+function DayList({ day, items, prefer }: { day: string; items: Item[]; prefer?: string }) {
   return (
     <>
       <div className="px-2 pt-1 pb-1.5 text-xs font-medium text-muted-foreground">{longDay(day)}</div>
       <ul className="flex flex-col">
-        {lessons.map((l) => (
-          <li key={l.slug}>
-            <a href={lessonHash(l.slug)} className="flex items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors duration-150 outline-none hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.045]">
-              <StatusMark status={l.status} color={lessonColor(l, prefer)} className="mt-[6px]" />
+        {items.map((l) => (
+          <li key={l.url}>
+            <a href={itemHash(l)} className="flex items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors duration-150 outline-none hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.045]">
+              <StatusMark status={l.status} color={itemColor(l, prefer)} className="mt-[6px]" />
               <span className="min-w-0 flex-1">
-                <span className={cn('line-clamp-2 text-[13px] leading-snug break-keep', l.status !== 'learning' && 'text-muted-foreground')}>{l.title}</span>
+                <span className={cn('line-clamp-2 text-[13px] leading-snug break-keep', l.status !== 'open' && 'text-muted-foreground')}>{l.title}</span>
                 <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
                   {[l.topic, l.projects.join(', ') || 'No project'].filter(Boolean).join(' · ')}
                 </span>
@@ -216,13 +218,13 @@ function DayList({ day, lessons, prefer }: { day: string; lessons: Lesson[]; pre
 
 const VISIBLE = 3
 
-function DayCell({ date, ym, lessons, prefer, col, lastRow }: { date: Date; ym: string; lessons: Lesson[]; prefer?: string; col: number; lastRow: boolean }) {
+function DayCell({ date, ym, items, prefer, col, lastRow }: { date: Date; ym: string; items: Item[]; prefer?: string; col: number; lastRow: boolean }) {
   const key = dkey(date)
   const inMonth = ymKey(date) === ym
   const today = key === todayKey()
   const [open, setOpen] = useState(false)
-  const shown = lessons.length > VISIBLE ? lessons.slice(0, VISIBLE) : lessons
-  const more = lessons.length - shown.length
+  const shown = items.length > VISIBLE ? items.slice(0, VISIBLE) : items
+  const more = items.length - shown.length
   const first = date.getDate() === 1
   return (
     <div
@@ -242,7 +244,7 @@ function DayCell({ date, ym, lessons, prefer, col, lastRow }: { date: Date; ym: 
         </span>
       </div>
       {shown.map((l) => (
-        <LessonChip key={l.slug} lesson={l} prefer={prefer} faded={!inMonth} />
+        <ItemChip key={l.url} item={l} prefer={prefer} faded={!inMonth} />
       ))}
       {more > 0 ? (
         <Popover open={open} onOpenChange={setOpen}>
@@ -258,7 +260,7 @@ function DayCell({ date, ym, lessons, prefer, col, lastRow }: { date: Date; ym: 
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" side="bottom" sideOffset={4} className="w-80 gap-0 p-1.5">
-            <DayList day={key} lessons={lessons} prefer={prefer} />
+            <DayList day={key} items={items} prefer={prefer} />
           </PopoverContent>
         </Popover>
       ) : null}
@@ -266,9 +268,9 @@ function DayCell({ date, ym, lessons, prefer, col, lastRow }: { date: Date; ym: 
   )
 }
 
-export function MonthGrid({ ym, lessons, prefer }: { ym: string; lessons: Lesson[]; prefer?: string }) {
+export function MonthGrid({ ym, items, prefer }: { ym: string; items: Item[]; prefer?: string }) {
   const weeks = useMemo(() => monthWeeks(ym), [ym])
-  const byDay = useMemo(() => groupByDay(lessons), [lessons])
+  const byDay = useMemo(() => groupByDay(items), [items])
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border bg-card">
       <div className="grid shrink-0 grid-cols-7 border-b">
@@ -280,7 +282,7 @@ export function MonthGrid({ ym, lessons, prefer }: { ym: string; lessons: Lesson
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-7" style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(7.5rem, 1fr))` }}>
         {weeks.map((w, r) =>
-          w.map((d, c) => <DayCell key={dkey(d)} date={d} ym={ym} lessons={byDay.get(dkey(d)) || []} prefer={prefer} col={c} lastRow={r === weeks.length - 1} />),
+          w.map((d, c) => <DayCell key={dkey(d)} date={d} ym={ym} items={byDay.get(dkey(d)) || []} prefer={prefer} col={c} lastRow={r === weeks.length - 1} />),
         )}
       </div>
     </div>
@@ -290,18 +292,17 @@ export function MonthGrid({ ym, lessons, prefer }: { ym: string; lessons: Lesson
 export function Legend() {
   return (
     <span className="inline-flex items-center gap-3 text-muted-foreground">
-      <span className="inline-flex items-center gap-1.5">
-        <StatusMark status="learning" color="var(--faint)" /> Learning
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <StatusMark status="understood" color="var(--faint)" /> Understood
-      </span>
+      {(['open', 'sent', 'done'] as const).map((s) => (
+        <span key={s} className="inline-flex items-center gap-1.5">
+          <StatusMark status={s} color="var(--faint)" /> {STATUS_LABEL[s]}
+        </span>
+      ))}
     </span>
   )
 }
 
-/** "6 lessons in November · 2 understood", or with a search: matches here and the months that have the others. */
-export function MonthSummary({ ym, inMonth, matches, setYm, projects: withProjects = true }: { ym: string; inMonth: Lesson[]; matches: Lesson[] | null; setYm: (m: string) => void; projects?: boolean }) {
+/** "6 pages in November · 2 done", or with a search: matches here and the months that have the others. */
+export function MonthSummary({ ym, inMonth, matches, setYm, projects: withProjects = true }: { ym: string; inMonth: Item[]; matches: Item[] | null; setYm: (m: string) => void; projects?: boolean }) {
   const name = MONTHS[pdate(ym + '-01').getMonth()]
   if (matches) {
     const others = new Map<string, number>()
@@ -325,22 +326,22 @@ export function MonthSummary({ ym, inMonth, matches, setYm, projects: withProjec
       </span>
     )
   }
-  const understood = inMonth.filter((l) => l.status === 'understood').length
+  const done = inMonth.filter((l) => l.status === 'done').length
   const projects = new Set(inMonth.flatMap((l) => l.projects)).size
   return (
     <span className="truncate">
       {inMonth.length
-        ? [`${plural(inMonth.length, 'lesson')} in ${name}`, withProjects && projects ? plural(projects, 'project') : '', `${understood} understood`].filter(Boolean).join(' · ')
-        : `No lessons in ${name}`}
+        ? [`${plural(inMonth.length, 'page')} in ${name}`, withProjects && projects ? plural(projects, 'project') : '', `${done} done`].filter(Boolean).join(' · ')
+        : `No pages in ${name}`}
     </span>
   )
 }
 
-/* ---------- phone: compact month + the month's lessons by day ---------- */
+/* ---------- phone: compact month + the month's pages by day ---------- */
 
-export function PhoneMonth({ ym, lessons, prefer, footer }: { ym: string; lessons: Lesson[]; prefer?: string; footer?: ReactNode }) {
+export function PhoneMonth({ ym, items, prefer, footer }: { ym: string; items: Item[]; prefer?: string; footer?: ReactNode }) {
   const weeks = useMemo(() => monthWeeks(ym), [ym])
-  const byDay = useMemo(() => groupByDay(lessons), [lessons])
+  const byDay = useMemo(() => groupByDay(items), [items])
   const [sel, setSel] = useState<string | null>(null)
   const [spacer, setSpacer] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
@@ -386,7 +387,7 @@ export function PhoneMonth({ ym, lessons, prefer, footer }: { ym: string; lesson
               type="button"
               disabled={!inMonth}
               onClick={() => tap(key)}
-              aria-label={`${longDay(key)}${ls.length ? `, ${plural(ls.length, 'lesson')}` : ''}`}
+              aria-label={`${longDay(key)}${ls.length ? `, ${plural(ls.length, 'page')}` : ''}`}
               aria-pressed={isSel}
               className="flex h-12 flex-col items-center gap-[3px] pt-1 outline-none disabled:pointer-events-none"
             >
@@ -403,7 +404,7 @@ export function PhoneMonth({ ym, lessons, prefer, footer }: { ym: string; lesson
               </span>
               <span className="flex h-[5px] items-center gap-[3px]">
                 {ls.slice(0, 3).map((l) => (
-                  <span key={l.slug} className="size-[5px] rounded-full" style={{ background: lessonColor(l, prefer) }} />
+                  <span key={l.url} className="size-[5px] rounded-full" style={{ background: itemColor(l, prefer) }} />
                 ))}
               </span>
             </button>
@@ -421,10 +422,10 @@ export function PhoneMonth({ ym, lessons, prefer, footer }: { ym: string; lesson
               </h3>
               <ul className="divide-y overflow-hidden rounded-[10px] border bg-card">
                 {byDay.get(k)!.map((l) => (
-                  <li key={l.slug}>
-                    <a href={lessonHash(l.slug)} className="flex items-center gap-3 px-3.5 py-3 transition-colors active:bg-foreground/[0.04]">
+                  <li key={l.url}>
+                    <a href={itemHash(l)} className="flex items-center gap-3 px-3.5 py-3 transition-colors active:bg-foreground/[0.04]">
                       <span className="min-w-0 flex-1">
-                        <span className={cn('line-clamp-2 text-[15px] leading-snug font-medium tracking-[-0.01em] break-keep', l.status !== 'learning' && 'text-foreground/70')}>{l.title}</span>
+                        <span className={cn('line-clamp-2 text-[15px] leading-snug font-medium tracking-[-0.01em] break-keep', l.status !== 'open' && 'text-foreground/70')}>{l.title}</span>
                         <span className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted-foreground">
                           {l.projects.length ? (
                             l.projects.map((p) => (
@@ -450,7 +451,7 @@ export function PhoneMonth({ ym, lessons, prefer, footer }: { ym: string; lesson
             </section>
           ))
         ) : (
-          <p className="px-5 py-10 text-center text-[13px] text-muted-foreground">No lessons in {MONTHS[pdate(ym + '-01').getMonth()]}.</p>
+          <p className="px-5 py-10 text-center text-[13px] text-muted-foreground">No pages in {MONTHS[pdate(ym + '-01').getMonth()]}.</p>
         )}
         {spacer ? <div aria-hidden style={{ height: spacer }} /> : null}
       </div>

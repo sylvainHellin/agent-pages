@@ -1,10 +1,11 @@
 # agent-pages
 
 HTML pages an agent writes for a person to read and comment on.
-A page comes in two kinds: a report, for an answer too long for the chat, and a lesson, which teaches a topic.
-A page is a lesson when its head carries `<meta name="agent-pages-kind" content="lesson">`, wherever it lives; the app lists the tutor's lessons and these marked pages together under Lessons.
+A page is a report, for an answer too long for the chat, or a lesson, which teaches a topic.
+The app shows every page in one list, each with one status (open, sent, done, archived) and free tags; a lesson carries the tag `lesson`.
+A page under the server's roots carries it when its head has `<meta name="agent-pages-kind" content="lesson">`, so the tag travels with the file, and the tutor's lessons always carry it.
 The reader comments on the page, answers its questions and pastes the export back to the agent, from a desktop browser or a phone.
-The repo holds the page template with its themes, the `agent-pages` CLI, the server with the library app that lists reports and lessons, the figure backends, and two agent skills that teach an agent to write reports and lessons.
+The repo holds the page template with its themes, the `agent-pages` CLI, the server with the library app that lists every page, the figure backends, and two agent skills that teach an agent to write reports and lessons.
 
 ## Credits
 
@@ -17,7 +18,7 @@ Sylvain Hellin built the page template, the `agent-pages` CLI and the skills.
 - `template/`: `report.css`, `report.js`, the page and lesson skeletons, `themes/` (plain, tum, basenord) and `review-sync.js`; its README documents every component and what the reader can do.
 - `skills/agent-pages/`, `skills/tutor/`: the agent skills for report pages and for lessons.
 - `src/agent_pages/`: the `agent-pages` CLI and its config module (stdlib and PyYAML).
-- `src/agent_pages/server/`: the standard-library HTTP server behind `agent-pages serve` (`app.py`), the report page index (`reports.py`), the lesson index (`library.py`) and the link inbox and agent jobs (`jobs.py`); it serves `template/` at `/_template/` and `/lessons/_assets/`, and the app theme's tokens for the app at `/api/theme.css` (`theme.py`).
+- `src/agent_pages/server/`: the standard-library HTTP server behind `agent-pages serve` (`app.py`), the page index (`reports.py`), the one list with its status and tag store (`library.py`) and the link inbox and agent jobs (`jobs.py`); it serves `template/` at `/_template/` and `/lessons/_assets/`, and the app theme's tokens for the app at `/api/theme.css` (`theme.py`).
 - `apps/ui/`: the React app, one build laid out for desktop and phone, in the colours and fonts of the app theme and in the light or dark mode the pages use; `dist/` is built on the machine that serves it.
 - `scripts/job_done.py`: the agent reports a finished job; `scripts/migrate_template_links.py`: points pages at `template/` instead of an old template folder (the report-html folder, or the repo before its rename).
 
@@ -72,13 +73,15 @@ Tests: `uv run python -m unittest discover -s tests`.
 ## Where things live
 
 - Lessons: `<lessons_dir>/<YYYY-MM-DD>_<slug>/` with `index.html`, `lesson.json` and `figures/`; `<lessons_dir>/_assets` is a symlink to `template/` (`agent-pages lesson new` creates it).
-- Server state (review sync, inbox, jobs, last opened): `<lessons_dir>/_data/`, never served as files; `pages.json` there holds the status, projects and tags of the marked pages read in place.
+- Server state (review sync, inbox, jobs, statuses and tags): `<lessons_dir>/_data/`, never served as files.
+- Status, tags, projects, topic and summary of every page: `<lessons_dir>/_data/items.json`, keyed by the page's `data-doc-id` (its URL when it has none, a tutor lesson's slug), so a page that keeps its id keeps them through a move; the lesson tag of a page under a root is its marker, in the file.
+  The server builds it once from the older `_data/pages.json` and the statuses in each `lesson.json` (learning becomes open, understood done), which it leaves as they are; deleting `items.json` builds it again.
 - Comments, answers and notes of every page the server serves: `<lessons_dir>/_data/review/` (lessons by slug, report pages under `pages/` by their `data-doc-id`); a page opened as a file keeps them in that browser only.
 - Projects: the open notes in `<vault>/02-areas/` and `<vault>/01-projects/`; the id is the note name, and a lesson created inside the repo a note names in `repo:` is linked to it.
 
 ## Serve
 
-The server publishes the configured roots, the lessons and the library app (Lessons and Reports); it has no login.
+The server publishes the configured roots, the lessons and the library app (the one list of pages); it has no login.
 Under a root it serves pages and the files they link, never hidden folders (`.git`, `.agents`, dotfiles) or build folders (`node_modules`, `dist`, ...), with one exception: a repo's `.sync/`, where agents save the pages a person reads.
 A symlink is judged by the file it resolves to, so a link into a hidden folder or out of every root is refused, and a link to a servable page is listed once, under the target's own URL.
 On a server, run `agent-pages serve` as a service (a systemd user unit or a launchd agent), not in a terminal.

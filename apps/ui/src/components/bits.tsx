@@ -60,16 +60,18 @@ export function ProjectChip({ id, warn, onRemove, link = true, className }: { id
   )
 }
 
-export const STATUS_LABEL: Record<Status, string> = { learning: 'Learning', understood: 'Understood', archived: 'Archived' }
+export const STATUS_LABEL: Record<Status, string> = { open: 'Open', sent: 'Sent', done: 'Done', archived: 'Archived' }
 
-/** Status as a shape: ring = learning (round trip open), filled = understood, grey = archived. Colour = the project's. */
+/** Status as a shape: ring = open, ring with a centre = sent (with an agent), filled = done, grey = archived.
+    Colour = the project's. */
 export function StatusMark({ status, color, className }: { status: Status; color?: string; className?: string }) {
   const c = status === 'archived' ? NO_PROJECT_COLOR : color || 'var(--faint)'
+  const ring = status === 'open' || status === 'sent'
   return (
     <span
       aria-hidden
-      className={cn('inline-block size-[7px] shrink-0 rounded-full', status === 'learning' ? 'border-[1.5px]' : '', className)}
-      style={status === 'learning' ? { borderColor: c } : { background: c }}
+      className={cn('inline-block size-[7px] shrink-0 rounded-full', ring ? 'border-[1.5px]' : '', className)}
+      style={ring ? { borderColor: c, background: status === 'sent' ? `radial-gradient(${c} 0 1px, transparent 1.5px)` : undefined } : { background: c }}
     />
   )
 }
@@ -80,8 +82,9 @@ export function StatusDot({ status, className }: { status: Status; className?: s
       aria-hidden
       className={cn(
         'inline-block size-[7px] shrink-0 rounded-full',
-        status === 'understood' && 'bg-primary',
-        status === 'learning' && 'border-[1.5px] border-learning',
+        status === 'done' && 'bg-primary',
+        status === 'open' && 'border-[1.5px] border-learning',
+        status === 'sent' && 'border-[1.5px] border-primary bg-[radial-gradient(var(--primary)_0_1px,transparent_1.5px)]',
         status === 'archived' && 'bg-faint/60',
         className,
       )}

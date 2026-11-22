@@ -1,25 +1,34 @@
-/* #/r/<url>: one report page inside the app. The app puts Back, "Move to lessons" and "Open alone" into the page's own
-   top bar (same origin), so one bar carries the title; a page without that bar (no report.js) gets the app's bar.
+/* #/r/<url>: one page inside the app. The app puts Back, the page's status and tags, and "Open alone" into the page's
+   own top bar (same origin), so one bar carries the title; a page without that bar (no report.js) gets the app's bar.
    Opening it in place kept the app's history but left the phone's standalone app with no way back.
-   "Move to lessons" adds the lesson marker to the page file (POST api/pages/kind) and opens it as a lesson. */
+   The status button opens the details dialog (status, tags, projects; PATCH api/items/<id>); the lesson tag writes the
+   lesson marker into the page file, and the page goes on to the lesson reader (#/l/<slug>), as does a #/r/ link to a
+   page that already has the tag. */
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRightIcon, ChevronLeftIcon, GraduationCapIcon } from 'lucide-react'
-import { toast } from 'sonner'
-import { rootUrl } from '@/lib/api'
+import { ArrowUpRightIcon, ChevronLeftIcon } from 'lucide-react'
+import { rootUrl, STATUSES, type Status } from '@/lib/api'
 import { stackTables } from '@/lib/reader-page'
 import { bindPageTheme, borrowPageTokens } from '@/lib/theme'
 import { lessonHash, navigate } from '@/lib/router'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { IconTip } from '@/components/bits'
+import { IconTip, STATUS_LABEL } from '@/components/bits'
+import { DetailsDialog, StatusMenu, TagsButton } from '@/components/lesson-meta'
 import { ThemeButton } from '@/components/theme-toggle'
 
 const ICON = {
   back: '<path d="m15 18-6-6 6-6"/>',
-  lesson:
-    '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+  tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
   alone: '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
+}
+
+/* the status dot of the page bar, drawn with the page's own tokens */
+const DOT: Record<Status, string> = {
+  open: 'border:1.5px solid var(--accent, currentColor)',
+  sent: 'border:1.5px solid var(--primary, currentColor);background:radial-gradient(var(--primary, currentColor) 0 1px,transparent 1.5px)',
+  done: 'background:var(--primary, currentColor)',
+  archived: 'background:var(--muted, #999);opacity:.6',
 }
 
 const BAR_CSS = `
@@ -27,6 +36,9 @@ const BAR_CSS = `
 .bn-app-back:hover { color: var(--ink); }
 .bn-app-sep { flex: none; width: 1px; height: 1.25rem; margin: 0 .15rem; background: var(--line); }
 a.bn-btn { text-decoration: none; }
+.bn-app-status { gap: .4rem; font-size: .8rem; }
+.bn-app-status .bn-app-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; box-sizing: border-box; }
+.bn-app-tags { gap: .25rem; font-size: .75rem; color: var(--muted); }
 @media (max-width: 720px) { .bn-app-back { margin-left: -.35rem; } .bn-app-alone, .bn-app-sep { display: none; } }
 `
 
@@ -34,10 +46,12 @@ interface BarActions {
   back: string
   alone: string
   path?: string
-  toLessons?: () => void
+  status?: Status
+  tags?: string[]
+  details?: () => void
 }
 
-/** Back, Move to lessons and Open alone in the page's own top bar; false when the page has no such bar. */
+/** Back, the status and tags buttons and Open alone in the page's own top bar; false when the page has no such bar. */
 function mountBar(d: Document, a: BarActions): boolean {
   const bar = d.querySelector('.bn-bar-in')
   if (!bar) return false
@@ -59,7 +73,7 @@ function mountBar(d: Document, a: BarActions): boolean {
     if (tag === 'button') (b as HTMLButtonElement).type = 'button'
     return b
   }
-  const back = btn('a', 'bn-app-back', 'Back to the reports', ICON.back) as HTMLAnchorElement
+  const back = btn('a', 'bn-app-back', 'Back to the list', ICON.back) as HTMLAnchorElement
   back.href = new URL(a.back, location.href).href
   back.target = '_top'
   back.addEventListener('click', (e) => {
@@ -72,10 +86,16 @@ function mountBar(d: Document, a: BarActions): boolean {
   sep.className = 'bn-app-sep'
   sep.setAttribute('data-app-ui', '')
   bar.appendChild(sep)
-  if (a.toLessons) {
-    const l = btn('button', 'bn-app-lesson', 'Move to lessons', ICON.lesson)
-    l.addEventListener('click', a.toLessons)
-    bar.appendChild(l)
+  if (a.details && a.status && STATUSES.includes(a.status)) {
+    const st = btn('button', 'bn-app-status', `Status: ${STATUS_LABEL[a.status]}`, '', 'Status, tags and projects')
+    st.innerHTML = `<span class="bn-app-dot" style="${DOT[a.status]}"></span>${STATUS_LABEL[a.status]}`
+    st.addEventListener('click', a.details)
+    bar.appendChild(st)
+    const tags = a.tags || []
+    const tg = btn('button', 'bn-app-tags', `Tags: ${tags.join(', ') || 'none'}`, ICON.tag, tags.map((t) => `#${t}`).join(' ') || 'Add tags')
+    if (tags.length) tg.appendChild(d.createTextNode(String(tags.length)))
+    tg.addEventListener('click', a.details)
+    bar.appendChild(tg)
   }
   const alone = btn('a', 'bn-app-alone', 'Open the page alone', ICON.alone, a.path ? `Open the page alone: ${a.path}` : undefined) as HTMLAnchorElement
   alone.href = a.alone
@@ -92,23 +112,20 @@ export function PageView({ url, backHash }: { url: string; backHash: string }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [ready, setReady] = useState(false)
   const [title, setTitle] = useState('')
-  const [moving, setMoving] = useState(false)
+  const [details, setDetails] = useState(false)
   /* null while loading, true once the page's own bar carries the app's buttons, false for a page without one */
   const [merged, setMerged] = useState<boolean | null>(null)
-  const setPageKind = useStore((s) => s.setPageKind)
-  const toLessons = async () => {
-    if (moving) return
-    setMoving(true)
-    try {
-      const r = await setPageKind(url, 'lesson')
-      if (r.slug) navigate(lessonHash(r.slug), { replace: true })
-      toast.success('Moved to lessons', { description: 'The page file now carries the lesson marker.' })
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-    setMoving(false)
-  }
   const shown = page?.title || title || decodeURIComponent(url.split('/').pop() || '')
+
+  // a page with the lesson tag is read in the lesson reader (just tagged, old #/r/ links, tagged on another device),
+  // once the details dialog has closed
+  const slug = page?.slug
+  useEffect(() => {
+    if (!slug) return
+    setDetails(false)
+    const t = setTimeout(() => navigate(lessonHash(slug), { replace: true }), 250)
+    return () => clearTimeout(t)
+  }, [slug])
 
   useEffect(() => {
     document.title = `${shown} · Agent Pages`
@@ -119,22 +136,23 @@ export function PageView({ url, backHash }: { url: string; backHash: string }) {
   }, [url])
   useEffect(() => () => borrowPageTokens(null), [])
 
-  /* the page's bar learns the path and the lesson action once the page list has loaded */
-  const actions: BarActions = { back: backHash, alone: src, path: page?.path, toLessons: page ? toLessons : undefined }
+  /* the page's bar learns the path, the status and the tags once the list has loaded, and follows their changes */
+  const actions: BarActions = { back: backHash, alone: src, path: page?.path, status: page?.status, tags: page?.tags, details: page ? () => setDetails(true) : undefined }
   const actionsRef = useRef(actions)
   actionsRef.current = actions
+  const tagKey = page?.tags.join(',')
   useEffect(() => {
     const d = frameRef.current?.contentDocument
     if (merged && d) mountBar(d, actionsRef.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [merged, page?.path, backHash])
+  }, [merged, page?.path, page?.status, tagKey, backHash])
 
   return (
     <div className="fixed inset-0 flex flex-col bg-background pt-[var(--safe-top)]">
       {merged === null ? (
-        <IconTip label="Back to the reports" side="bottom">
+        <IconTip label="Back to the list" side="bottom">
           <Button variant="ghost" size="icon" asChild className="absolute top-[calc(var(--safe-top)+0.5rem)] left-1.5 z-30 desk:size-7">
-            <a href={backHash} aria-label="Back to the reports">
+            <a href={backHash} aria-label="Back to the list">
               <ChevronLeftIcon className="size-5 desk:size-4" />
             </a>
           </Button>
@@ -143,9 +161,9 @@ export function PageView({ url, backHash }: { url: string; backHash: string }) {
       {merged === false ? (
       <header className="relative z-20 shrink-0 border-b bg-card">
         <div className="flex h-[3.25rem] items-center gap-1 px-1.5 desk:h-12 desk:gap-1.5 desk:px-2">
-          <IconTip label="Back to the reports" side="bottom">
+          <IconTip label="Back to the list" side="bottom">
             <Button variant="ghost" size="icon" asChild className="shrink-0 desk:size-7">
-              <a href={backHash} aria-label="Back to the reports">
+              <a href={backHash} aria-label="Back to the list">
                 <ChevronLeftIcon className="size-5 desk:size-4" />
               </a>
             </Button>
@@ -161,11 +179,10 @@ export function PageView({ url, backHash }: { url: string; backHash: string }) {
             ) : null}
           </div>
           {page ? (
-            <IconTip label="Move to lessons" side="bottom">
-              <Button variant="ghost" size="icon" className="shrink-0 desk:size-7" disabled={moving} onClick={toLessons} aria-label="Move to lessons">
-                <GraduationCapIcon className="size-[18px] desk:size-4" />
-              </Button>
-            </IconTip>
+            <>
+              <TagsButton item={page} className="shrink-0" />
+              <StatusMenu item={page} className="shrink-0" />
+            </>
           ) : null}
           <ThemeButton className="desk:size-7" iconClassName="size-[18px] desk:size-4" />
           <IconTip label="Open the page alone" side="bottom">
@@ -207,6 +224,7 @@ export function PageView({ url, backHash }: { url: string; backHash: string }) {
           }}
         />
       </div>
+      {page ? <DetailsDialog item={page} open={details} onOpenChange={setDetails} /> : null}
     </div>
   )
 }
