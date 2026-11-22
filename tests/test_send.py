@@ -704,6 +704,36 @@ class SendToAgent(unittest.TestCase):
         body = self.send(rid=rid)[1]
         self.assertEqual((body["route"], body["where"]), ("live", "t9"))
 
+    # ---- what a served page learns for its Send to agent button (template/agent-send.js) ----
+    def send_boot(self, url: str) -> dict | None:
+        text = self.req("GET", url)[1]
+        m = re.search(r"<script>AgentSend\.page\((.*?)\);</script>", text, re.S)
+        if m is None:
+            self.assertNotIn("agent-send.js", text)
+            return None
+        self.assertLess(text.index("/_template/agent-send.js"), text.index(m.group(0)))
+        self.assertLess(text.index(m.group(0)), text.index("report.js"))
+        self.assertNotIn('"send"', re.search(r"<script>TutorSync\.page\((.*?)\);</script>", text, re.S).group(1))
+        return json.loads(m.group(1))
+
+    def test_a_served_page_names_its_page_id_and_whether_a_new_agent_can_start(self):
+        b = self.send_boot("/documents/area/page.html")
+        self.assertEqual(b, {"api": "/api/", "page": RID, "new": True})
+        self.assertEqual(self.item(RID)["url"], "/documents/area/page.html")
+        slug = "2026-01-02_send-lesson"
+        (self.cfg.lessons_dir / slug).mkdir()
+        (self.cfg.lessons_dir / slug / "index.html").write_text(page(slug, S_LESSON, "A lesson"))
+        lesson = self.send_boot(f"/lessons/{slug}/")
+        self.assertEqual(lesson["page"], reports.review_id(library.tutor_key(slug)))
+        self.assertEqual(self.item(lesson["page"])["url"], f"/lessons/{slug}/")
+        # no paseo on PATH: no new agent
+        with mock.patch.dict(os.environ, {"PATH": "/nonexistent"}):
+            self.assertEqual(self.send_boot("/documents/area/page.html")["new"], False)
+        # a shared data-doc-id: nothing to send to (POST /api/send answers 409)
+        (self.docs / "area" / "copy.html").write_text(page(DOC_ID, S_NEW))
+        self.index.scan()
+        self.assertIsNone(self.send_boot("/documents/area/page.html"))
+
 
 class Suppressions(unittest.TestCase):
     def test_every_noqa_states_its_reason(self):

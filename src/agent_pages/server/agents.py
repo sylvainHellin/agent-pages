@@ -41,6 +41,7 @@ import json
 import os
 import re
 import select
+import shutil
 import socket
 import subprocess
 import sys
@@ -813,6 +814,13 @@ def _agent_id(out: str) -> str:
     if not UUID_RE.match(agent):
         raise SendError(f"Paseo answered no agent id: {out.strip()[:300]}")
     return agent
+
+
+def can_start_new() -> bool:
+    """Whether a send can start a new agent: the `new` command's program is on PATH (what a served page's Start a
+    new agent button needs)."""
+    argv = COMMANDS.get("new") or []
+    return bool(argv) and shutil.which(argv[0]) is not None
 
 
 def command(name: str, **values: str) -> list[str]:

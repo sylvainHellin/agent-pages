@@ -4,7 +4,8 @@
   GET  /<root>/<path>            a report page under a configured root, file:// links rewritten; only indexed
                                  pages and the files they reference are served (reports.py). A page with the
                                  review layer (report.js) gets review-sync.js and its stored review state in
-                                 its head, so comments follow the reader between devices (review_boot)
+                                 its head, so comments follow the reader between devices (review_boot), and
+                                 agent-send.js with its page id for the Send to agent button
   GET  /_template/<path>         the repo template (report.css, report.js, themes, fonts, favicons); folders the
                                  config lists in template_aliases, and /lessons/_assets/, map to it too
   GET  /favicon.ico, /favicon.png, /apple-touch-icon.png   the template's icons
@@ -65,7 +66,7 @@ from .. import REPO, TEMPLATE_DIR
 from ..config import Config, ConfigError
 from . import agents, jobs, library
 from .theme import app_theme_css
-from .reports import ASSET_EXT, PAGE_EXT, Index, Site, hidden, page_kind
+from .reports import ASSET_EXT, PAGE_EXT, Index, Site, hidden, page_kind, review_id
 
 UI = REPO / "apps" / "ui" / "dist"  # one Vite build (base './') served at / and at /app/
 ROOT_ICONS = {"/favicon.ico", "/favicon.png", "/apple-touch-icon.png"}  # from the template, for every page
@@ -73,16 +74,22 @@ RESERVED = {"api", "app", "assets", "lessons", "_template", "healthz", "index.js
 SW = "sw.js"  # the service worker, served at the app root only (a copy under /app/ would get a narrower scope)
 IMMUTABLE = "public, max-age=31536000, immutable"  # Vite's content-hashed files under assets/
 REVIEW_JS = "/_template/review-sync.js"
+SEND_JS = "/_template/agent-send.js"
 HEAD_RE = re.compile(r"<head(?:\s[^>]*)?>", re.I)
 CHARSET_RE = re.compile(r"<meta\b[^>]*\bcharset\b[^>]*>", re.I)
 
 
-def inject_boot(text: str, boot: dict) -> str:
+def _js_arg(value: dict) -> str:
+    return (json.dumps(value, ensure_ascii=False).replace("</", "<\\/").replace("<!--", "<\\!--")
+            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
+
+
+def inject_boot(text: str, boot: dict, send: dict | None = None) -> str:
     """The page with review-sync.js and its TutorSync.page() call at the top of its head (after <meta charset>),
-    so they run before report.js reads localStorage."""
-    arg = (json.dumps(boot, ensure_ascii=False).replace("</", "<\\/").replace("<!--", "<\\!--")
-           .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
-    snippet = f'\n<script src="{REVIEW_JS}"></script>\n<script>TutorSync.page({arg});</script>'
+    so they run before report.js reads localStorage; with `send`, agent-send.js and its AgentSend.page() call too."""
+    snippet = f'\n<script src="{REVIEW_JS}"></script>\n<script>TutorSync.page({_js_arg(boot)});</script>'
+    if send is not None:
+        snippet += f'\n<script src="{SEND_JS}"></script>\n<script>AgentSend.page({_js_arg(send)});</script>'
     head = HEAD_RE.search(text)
     if head is None:
         return snippet.lstrip() + "\n" + text
@@ -239,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
             text = self.site.rewrite(text)
         boot = self.review_boot(real, text)
         if boot is not None:
-            text = inject_boot(text, boot)
+            text = inject_boot(text, boot, boot.pop("send", None))
         return self._send(text.encode("utf-8"), "text/html; charset=utf-8")
 
     def _lesson_slug(self, real: Path) -> str | None:
@@ -253,23 +260,35 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def review_boot(self, real: Path, text: str) -> dict | None:
-        """Where the page's review state lives and what it is now, for TutorSync.page(); None without report.js."""
+        """Where the page's review state lives and what it is now, for TutorSync.page(); None without report.js.
+        Its key "send" is what AgentSend.page() gets: the page's id in /api/items and POST /api/send, and whether a
+        new agent can start; absent when the page's data-doc-id is shared, since a send would be refused."""
         if "report.js" not in text:
             return None
-        slug = self._lesson_slug(real)
+        tutor = slug = self._lesson_slug(real)
         if slug is None and page_kind(text) == "lesson":
             slug = next((s for s, e in self.index.inplace_lessons().items() if e["file"] == real), None)
+        r = None if slug else self.index.review_of(real)
+        if tutor:
+            send_id = review_id(library.tutor_key(tutor))
+        else:  # a report page or a marked page under a root: the id of its key, as /api/items lists it
+            key = next((e["key"] for e in self.index.all_entries() if e["file"] == real), None)
+            send_id = review_id(key) if key is not None and len(self.index.urls_of(key)) == 1 else None
+        send = {"api": "/api/", "page": send_id, "new": agents.can_start_new()} if send_id else None
         if slug is not None:
             try:
                 state = jobs.get_review(slug)
             except KeyError:
                 return None
-            return {"api": "/api/", "path": f"lessons/{quote(slug)}/review", "lesson": True, "shared": [], "state": state}
-        r = self.index.review_of(real)
-        if r is None:
+            boot = {"api": "/api/", "path": f"lessons/{quote(slug)}/review", "lesson": True, "shared": [], "state": state}
+        elif r is None:
             return None
-        state = None if r["shared"] else jobs.get_page_review(r["id"])
-        return {"api": "/api/", "path": f"reviews/{r['id']}", "lesson": False, "shared": r["shared"], "state": state}
+        else:
+            state = None if r["shared"] else jobs.get_page_review(r["id"])
+            boot = {"api": "/api/", "path": f"reviews/{r['id']}", "lesson": False, "shared": r["shared"], "state": state}
+        if send is not None:
+            boot["send"] = send
+        return boot
 
     def _page_status(self, url: str):
         """The version of a page the server would serve, for `agent-pages open`."""

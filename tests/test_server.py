@@ -365,6 +365,10 @@ class ServerRoutes(unittest.TestCase):
         self.post(f"/api/lessons/{slug}/review", {"data": {"notes": "n"}})
         b = self.boot(INPLACE_URL)
         self.assertEqual((b["path"], b["lesson"], b["state"]["data"]), (f"lessons/{slug}/review", True, {"notes": "n"}))
+        # Send to agent names the lesson by its id in the one list
+        send = json.loads(re.search(r"<script>AgentSend\.page\((.*?)\);</script>", self.get(INPLACE_URL)[1].decode()).group(1))
+        items = json.loads(self.get("/api/items")[1])["items"]
+        self.assertEqual(send["page"], next(i["id"] for i in items if i["url"] == INPLACE_URL))
         (self.cfg.lessons_dir / SLUG / "index.html").write_text(
             '<html data-doc-id="%s"><head><script src="../_assets/report.js"></script><title>A lesson</title></head><main></main></html>' % SLUG)
         for url in (f"/lessons/{SLUG}/", f"/lessons/{SLUG}/index.html", f"/documents/lessons/{SLUG}/index.html"):
