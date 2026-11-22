@@ -143,3 +143,77 @@ test('liveAssets: cached app files the current shell still reaches, directly or 
   ]
   assert.deepEqual([...SW.liveAssets(shell, files)].sort(), ['Chunk-AAA.js', 'Pretendard.0-BBB.woff2', 'index-NEW.css', 'index-NEW.js'])
 })
+
+// The worker itself, with stubbed caches, fetch and clients: what a background revalidation of the app shell does.
+function worker(files) {
+  const stores = new Map()
+  const posted = []
+  const listeners = {}
+  const res = (body, { status = 200, etag = null } = {}) => ({
+    status, type: 'basic', redirected: false, body,
+    headers: { get: (h) => (h.toLowerCase() === 'etag' ? etag : h.toLowerCase() === 'content-type' ? 'text/html' : null) },
+    clone: () => res(body, { status, etag }),
+    text: async () => body,
+  })
+  const urlOf = (k) => (typeof k === 'string' ? k : k.url)
+  const cache = (name) => {
+    if (!stores.has(name)) stores.set(name, new Map())
+    const m = stores.get(name)
+    return {
+      match: async (k) => m.get(urlOf(k)),
+      put: async (k, r) => { m.set(urlOf(k), r) },
+      keys: async () => [...m.keys()].map((url) => ({ url })),
+      delete: async (k) => m.delete(urlOf(k)),
+    }
+  }
+  const self = {
+    registration: { scope: SCOPE },
+    addEventListener: (t, f) => { listeners[t] = f },
+    skipWaiting: () => {},
+    clients: { matchAll: async () => [{ postMessage: (m) => posted.push(m) }], claim: async () => {} },
+  }
+  const fetch = async (u) => {
+    const rel = new URL(urlOf(u)).pathname.slice(1)
+    return rel in files ? res(files[rel], { etag: '"new"' }) : res('not found', { status: 404 })
+  }
+  vm.runInNewContext(SRC, { URL, console, Set, Promise, self, caches: { open: async (n) => cache(n), keys: async () => [...stores.keys()] }, fetch })
+  return {
+    posted,
+    put: (name, key, body, etag) => cache(name).put(key, res(body, { etag })),
+    text: async (name, key) => (await cache(name).match(key))?.body,
+    // a navigation to the shell, served from the cache; resolves once the background revalidation is done
+    open: async (url) => {
+      const waits = []
+      let response
+      listeners.fetch({
+        request: { url, method: 'GET', mode: 'navigate', cache: 'default', headers: { has: () => false } },
+        respondWith: (p) => { response = p },
+        waitUntil: (p) => waits.push(p),
+      })
+      await response
+      for (let i = 0; i < waits.length; i++) await waits[i]
+      for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+    },
+  }
+}
+
+const NEW_SHELL = `<!doctype html><head><link rel="icon" href="./favicon.png"><link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="manifest" href="./app/manifest.webmanifest"><link rel="stylesheet" href="./api/theme.css">
+<script type="module" crossorigin src="./assets/index-NEW.js"></script></head><body></body>`
+
+test('a new shell is stored and announced although its icon, manifest and theme answer 404 (best effort)', async () => {
+  const w = worker({ '': NEW_SHELL, 'assets/index-NEW.js': 'export {}' })
+  await w.put(SW.CACHES.pages, SCOPE, '<!doctype html>old shell', '"old"')
+  await w.open(SCOPE)
+  assert.equal(await w.text(SW.CACHES.pages, SCOPE), NEW_SHELL)
+  assert.equal(await w.text(SW.CACHES.assets, SCOPE + 'assets/index-NEW.js'), 'export {}')
+  assert.deepEqual(w.posted.filter((m) => m.type === 'agent-pages:updated').map((m) => [m.url, m.shell]), [[SCOPE, true]])
+})
+
+test('a new shell whose hashed asset cannot be cached is neither stored nor announced (it would not work offline)', async () => {
+  const w = worker({ '': NEW_SHELL, 'favicon.png': 'png', 'icon-180.png': 'png', 'app/manifest.webmanifest': '{}', 'api/theme.css': '' })
+  await w.put(SW.CACHES.pages, SCOPE, '<!doctype html>old shell', '"old"')
+  await w.open(SCOPE)
+  assert.equal(await w.text(SW.CACHES.pages, SCOPE), '<!doctype html>old shell')
+  assert.deepEqual(w.posted.filter((m) => m.type === 'agent-pages:updated'), [])
+})
