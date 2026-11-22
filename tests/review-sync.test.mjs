@@ -7,14 +7,14 @@ import vm from 'node:vm'
 
 const SRC = readFileSync(new URL('../template/review-sync.js', import.meta.url), 'utf8')
 
-function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = false, controlled = false, slowGets = false } = {}) {
-  const store = new Map()
+// Two windows of one device (the app and the lesson in its frame) share `store` (localStorage) and `net` (the server).
+function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = false, controlled = false, slowGets = false,
+  store = new Map(), net = { server: { updated: 0, data: {} } }, parent = null } = {}) {
   const listeners = {}
   const posts = []
   const gets = []
   const intervals = []
   const held = [] // GETs waiting for answer() when slowGets
-  let server = { updated: 0, data: {} }
   const win = {
     localStorage: {
       getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -39,29 +39,32 @@ function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = fa
       if (opts.method !== 'POST') gets.push(url)
       if (opts.method === 'POST') {
         const body = JSON.parse(opts.body)
-        posts.push({ url, data: body.data, at: body.at })
-        if (body.at != null && body.at < server.updated) { // as the server: a push from an older base is refused
-          const updated = server.updated
+        posts.push({ url, data: body.data, at: body.at, keepalive: !!opts.keepalive })
+        if (body.at != null && body.at < net.server.updated) { // as the server: a push from an older base is refused
+          const updated = net.server.updated
           return { ok: false, status: 409, json: async () => ({ error: 'stale', stale: true, updated }) }
         }
-        server = { updated: server.updated + 1, data: body.data }
-        return { ok: true, json: async () => ({ updated: server.updated }) }
+        net.server = { updated: net.server.updated + 1, data: body.data }
+        const updated = net.server.updated
+        return { ok: true, json: async () => ({ updated }) }
       }
-      const snap = JSON.parse(JSON.stringify(server))
+      const snap = JSON.parse(JSON.stringify(net.server))
       if (slowGets) await new Promise((r) => held.push(r))
       return { ok: true, json: async () => snap }
     },
   }
   win.window = win
-  win.parent = framed ? {} : win
+  win.parent = parent || (framed ? {} : win)
+  win.frames = [] // the app: its reader's iframe once a test puts it there
   vm.createContext(win)
   vm.runInContext(SRC, win)
   const ls = (k) => (store.has(k) ? JSON.parse(store.get(k)) : undefined)
   const set = (k, v) => store.set(k, JSON.stringify(v))
   return {
     win, ls, set, posts, gets, listeners,
-    server: () => server,
-    setServer: (s) => { server = s },
+    server: () => net.server,
+    setServer: (s) => { net.server = s },
+    settle: async () => { for (let i = 0; i < 12; i++) await new Promise((r) => setTimeout(r, 0)) },
     every: async () => { for (const f of intervals) f(); for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)) },
     answer: async () => { held.splice(0).forEach((r) => r()); for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)) },
     fire: async (t) => { for (const f of listeners[t] || []) f(); await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)) },
@@ -243,3 +246,29 @@ test('the app API keeps working: pull and push by lesson slug', async () => {
   assert.equal(await b.win.TutorSync.push('/api/', 'L1'), true)
   assert.equal(b.posts[0].url, '/api/lessons/L1/review')
 })
+
+test('the app beside a lesson in its frame: a refused push leaves the merge to the page, so report.js cannot write its older copy over it', async () => {
+  const store = new Map(), net = { server: { updated: 3, data: { c: [c('a')] } } }
+  const app = browser({ docId: null, path: '/app/', store, net })
+  await app.win.TutorSync.pull('/api/', 'L1') // the app pulls before it loads the lesson
+  const frame = browser({ docId: 'L1', path: '/lessons/L1/', framed: true, controlled: true, store, net, parent: app.win })
+  app.win.frames.push(frame.win)
+  frame.win.TutorSync.page({ api: '/api/', path: 'lessons/L1/review', lesson: true, state: { updated: 3, data: { c: [c('a')] } } })
+  let memory = frame.ls('anno:L1') // report.js's own copy of what is stored
+  const save = (x) => { memory = [...memory, x]; frame.set('anno:L1', memory) } // report.js writes its copy back on each edit
+  net.server = { updated: 4, data: { c: [c('a'), c('b')] } } // the phone added b
+  save(c('c'))
+  await app.win.TutorSync.push('/api/', 'L1') // the app's 1.5 s tick: refused, based on 3
+  await app.settle()
+  save(c('d')) // report.js still holds [a, c]
+  await frame.every() // the page catches up: merges and reloads
+  await frame.settle()
+  if (frame.win.location.reloaded) memory = frame.ls('anno:L1') // the reloaded report.js reads what is stored
+  await frame.every()
+  await frame.settle()
+  await app.win.TutorSync.push('/api/', 'L1')
+  await app.settle()
+  assert.deepEqual(net.server.data.c.map((x) => x.id).sort(), ['a', 'b', 'c', 'd'])
+  assert.deepEqual(frame.ls('anno:L1').map((x) => x.id).sort(), ['a', 'b', 'c', 'd'])
+})
+

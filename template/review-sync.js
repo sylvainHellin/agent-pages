@@ -10,20 +10,23 @@
                                 state: {updated, data}, lesson, shared: [urls of other pages with the same data-doc-id]}
      TutorSync.pull(api, slug)  the library app (apps/ui), before a lesson page loads and when it comes back to the front;
                                 resolves true when it changed what is stored on this device
-     TutorSync.push(api, slug)  the app, after edits
+     TutorSync.push(api, slug)  the app, after edits; for a lesson its frame shows, through that page (the page merges)
    pull and push take an optional last argument `key`, the page's storage key, when it differs from the lesson slug.
    Last sync per page and device: localStorage tl-sync:<key> = {at: server time, sig: the data sent or received},
    the common base of the three-way merge when both sides changed. A push sends `at`; the server refuses it (409,
    {stale: true}) when another device saved since, and the device pulls and merges first.
    report.js keeps its own copy of the stored state and writes it back on every edit, so a page takes in a newer
    server state only when the reader is not typing, and reloads right after: until then it neither writes the
-   storage nor pushes, and the meta keeps the old base for the merge. */
+   storage nor pushes, and the meta keeps the old base for the merge.
+   The app never merges into the storage of a page its frame shows (report.js there would write its older copy
+   back): its push for that key goes through the page's own, which merges only as above. */
 (function () {
   'use strict';
   if (window.TutorSync) return;
   var PARTS = { c: '', answers: ':answers', notes: ':notes', round: ':round', prev: ':prev' };
   var busy = {};
   var behind = {}; // key -> true: the server holds a newer state than this device's base (a push was refused)
+  var pages = {}; // key -> the push of the page() running here for that key
   function key(k, part) { return 'anno:' + k + PARTS[part]; }
   function read(k) {
     var d = {};
@@ -150,7 +153,20 @@
       return ok || !behind[k] ? ok : pullFrom(api, path, k);
     });
   }
-  function push(api, slug, keepalive, k) { return slug ? pushMerge(api, lessonPath(slug), k || slug, keepalive) : Promise.resolve(false); }
+  // The TutorSync of a page in one of this window's frames (the app's reader) that runs page() for the key.
+  function hostOf(k) {
+    var fs = window.frames;
+    for (var i = 0; fs && i < fs.length; i++) {
+      try { var t = fs[i].TutorSync; if (t && t !== window.TutorSync && t.hosts && t.hosts(k)) return t; } catch (e) {}
+    }
+    return null;
+  }
+  function push(api, slug, keepalive, k) {
+    if (!slug) return Promise.resolve(false);
+    k = k || slug;
+    var host = hostOf(k);
+    return host ? host.send(k, keepalive) : pushMerge(api, lessonPath(slug), k, keepalive);
+  }
   function pull(api, slug, k) { return slug ? pullFrom(api, lessonPath(slug), k || slug) : Promise.resolve(false); }
 
   // The storage key report.js uses (docIdOf there).
@@ -194,6 +210,7 @@
       }).catch(function () { waiting = false; return false; })
         .then(function (changed) { pulling = false; if (changed) location.reload(); return changed; });
     }
+    pages[k] = send;
     if (o.state) {
       var r = apply(k, o.state); // before report.js reads the storage
       if (r === 'merged' || r === 'dirty') setTimeout(function () { send(); }, 0);
@@ -215,5 +232,9 @@
     if (waiting) catchUp();
   }
 
-  window.TutorSync = { pull: pull, push: push, read: read, merge: merge, page: page };
+  window.TutorSync = {
+    pull: pull, push: push, read: read, merge: merge, page: page,
+    hosts: function (k) { return !!pages[k]; },
+    send: function (k, keepalive) { return pages[k] ? pages[k](keepalive) : Promise.resolve(false); }
+  };
 })();
