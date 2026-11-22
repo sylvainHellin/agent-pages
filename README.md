@@ -120,6 +120,8 @@ If a tab is closed while its reader types and another tab of the same page on th
 
 Send to agent hands a page's comment export to the agent session that wrote the page, queued until its current turn ends, from the desktop or the phone.
 The targets are the ids in the page's session line, newest first; an id that is not a UUID is skipped.
+Routing is live first: a connected pi of an older session gets the send now rather than leaving it to wait for a newer session whose pi is registered but away (a sleeping Mac).
+Only a send made in the server's first minute, while the pis reconnect, waits for the newest registered session instead of going to the first pi that comes back; after that minute it is routed live first like any other.
 
 A pi reaches the server through the `agent-pages-inbox` pi extension (in Sylvain's dotfiles, `pi/.config/pi/extensions/agent-pages-inbox`).
 On every session start it holds one stream, `GET /api/agents/listen`, naming its session, pid, host and harness (`paseo`, `herdr` for an hc terminal, else `pi`), and it reads the server's address from `base_url`.

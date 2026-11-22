@@ -621,6 +621,33 @@ class SendToAgent(unittest.TestCase):
         self.assertEqual(until(s.sends)[0]["id"], "send-0001")
         self.assertEqual(self.record()["session"], S_OLD)
 
+    def test_a_grace_send_waits_for_a_newer_registered_session(self):
+        with mock.patch.multiple(agents, GRACE_S=60):
+            self.send()
+            # the Mac's pi of the newer session registered once and has not reconnected yet
+            reg = {"session": S_NEW, "pid": 4242, "host": "sylvain-mac", "harness": "pi", "where": "",
+                   "connected_at": time.time(), "last_seen": time.time()}
+            (library.DATA / "agents").mkdir(parents=True, exist_ok=True)
+            (library.DATA / "agents" / f"{S_NEW}.json").write_text(json.dumps(reg))
+            old = self.listen(S_OLD)
+            time.sleep(0.2)
+            self.assertEqual((old.sends(), self.record()["session"]), ([], None))
+            new = self.listen(S_NEW, pid=4242, host="sylvain-mac")
+        self.assertEqual(until(new.sends)[0]["id"], "send-0001")
+        self.assertEqual(self.record()["session"], S_NEW)
+
+    def test_after_the_grace_a_live_older_session_beats_a_registered_newer_one(self):
+        with mock.patch.multiple(agents, GRACE_S=60):
+            self.send()
+            reg = {"session": S_NEW, "pid": 4242, "host": "sylvain-mac", "harness": "pi", "where": "",
+                   "connected_at": time.time(), "last_seen": time.time()}
+            (library.DATA / "agents").mkdir(parents=True, exist_ok=True)
+            (library.DATA / "agents" / f"{S_NEW}.json").write_text(json.dumps(reg))
+            old = self.listen(S_OLD, where="t1")
+        agents.after_grace()
+        self.assertEqual(until(old.sends)[0]["id"], "send-0001")
+        self.assertEqual((self.record()["route"], self.record()["session"]), ("live", S_OLD))
+
     def test_shared_key_is_refused(self):
         (self.docs / "area" / "copy.html").write_text(page(DOC_ID, S_NEW))
         self.index.scan()

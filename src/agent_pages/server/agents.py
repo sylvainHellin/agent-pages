@@ -279,12 +279,19 @@ def _register(lst: Listener) -> tuple["Listener | None", list[dict]]:
                 continue
             if rec.get("session") == s:
                 push.append(rec)
-            elif _waits_for_grace(rec) and s in (rec.get("sessions") or []):
+            elif _waits_for_grace(rec) and s in (rec.get("sessions") or []) and not _newer_registered(rec["sessions"], s):
                 rec.pop("grace", None)
                 rec.update(session=s, harness=reg["harness"], where=reg["where"], host=reg["host"])
                 _save(rec)
                 push.append(rec)
     return old, push
+
+
+def _newer_registered(sessions: list[str], s: str) -> bool:
+    """Whether a session the page names as newer than s (before it in the newest-first list) is registered: a grace
+    send then waits for that one rather than going to the first pi that reconnects. Once the grace is over, routing
+    is live first again (_route), so a connected older session beats a newer one whose pi has not come back."""
+    return any(o in _live or _registered(o) is not None for o in sessions[:sessions.index(s)])
 
 
 def _claimer_gone(claimer: dict, reg: dict) -> bool:
