@@ -107,6 +107,7 @@ On an iPhone, open that URL in Safari and use Share, Add to Home Screen.
 
 The app keeps itself and every page opened in it readable with no connection: a service worker (`apps/ui/public/sw.js`, served at `/sw.js`) shows the saved copy first and asks the server for a newer one in the background, and a page's Download for offline button also saves the images it references.
 Service workers need HTTPS or localhost, so offline reading works behind `tailscale serve` or on `127.0.0.1`, not on a plain `http://` tailnet address.
+A comment saved while another device's newer save is pending reaches the server the next time the page is opened on the same device.
 
 ## Agent skills
 

@@ -20,7 +20,9 @@
    server state only when the reader is not typing, and reloads right after: until then it neither writes the
    storage nor pushes, and the meta keeps the old base for the merge.
    The app never merges into the storage of a page its frame shows (report.js there would write its older copy
-   back): its push and its pull for that key go through the page's own, which merges only as above. */
+   back): its push and its pull for that key go through the page's own, which merges only as above.
+   Accepted limitation: a comment saved while another device's newer save is pending (the reader was typing) reaches
+   the server the next time the page is opened on this device; until then it stays in this device's storage. */
 (function () {
   'use strict';
   if (window.TutorSync) return;
