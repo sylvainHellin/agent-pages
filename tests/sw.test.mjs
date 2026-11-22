@@ -54,11 +54,13 @@ test('a reload asks the network first and keeps the cached copy for offline', ()
 })
 
 test('the API is never cached, except the lists the app shows offline', () => {
-  for (const p of ['api/pages', 'api/lessons', 'api/lessons?project=x', 'api/items', 'api/projects', 'api/theme.css']) {
+  for (const p of ['api/items', 'api/projects', 'api/theme.css']) {
     const s = SW.strategy(req(p), SCOPE)
     assert.deepEqual([s.kind, s.cache], ['network-first', SW.CACHES.api], p)
   }
-  for (const p of ['api/inbox', 'api/reviews/doc-1', 'api/lessons/x/review', 'api/pages/status?url=/a.html', 'api/jobs/1/log',
+  // api/pages and api/lessons were the lists before the one list (api/items); the server answers 404 now
+  for (const p of ['api/pages', 'api/lessons', 'api/lessons?project=x', 'api/inbox', 'api/reviews/doc-1', 'api/lessons/x/review',
+    'api/pages/status?url=/a.html', 'api/jobs/1/log',
     'healthz', 'index.json', 'sw.js']) {
     assert.equal(kind(p), 'network', p)
   }
@@ -144,17 +146,29 @@ test('liveAssets: cached app files the current shell still reaches, directly or 
   assert.deepEqual([...SW.liveAssets(shell, files)].sort(), ['Chunk-AAA.js', 'Pretendard.0-BBB.woff2', 'index-NEW.css', 'index-NEW.js'])
 })
 
-// The worker itself, with stubbed caches, fetch and clients: what a background revalidation of the app shell does.
+// The worker itself, with stubbed caches, fetch and clients. files: path under the scope -> body, or {body, etag, type};
+// the server answers 304 to a request with the file's ETag in If-None-Match, and nothing at all while w.down is true.
+const typeOf = (rel) => (/\.css$/.test(rel) ? 'text/css' : /\.m?js$/.test(rel) ? 'text/javascript' : /\.(png|jpe?g|webp|svg)$/.test(rel) ? 'image/png'
+  : /^api\//.test(rel) ? 'application/json' : 'text/html')
 function worker(files) {
   const stores = new Map()
   const posted = []
   const listeners = {}
-  const res = (body, { status = 200, etag = null } = {}) => ({
+  const fetched = [] // [path, If-None-Match] of every request that reached the server
+  const res = (body, { status = 200, etag = null, type = 'text/html' } = {}) => ({
     status, type: 'basic', redirected: false, body,
-    headers: { get: (h) => (h.toLowerCase() === 'etag' ? etag : h.toLowerCase() === 'content-type' ? 'text/html' : null) },
-    clone: () => res(body, { status, etag }),
+    headers: {
+      get: (h) => ({ etag, 'content-type': type, 'content-length': status === 200 ? String(body.length) : null })[h.toLowerCase()] ?? null,
+    },
+    clone: () => res(body, { status, etag, type }),
     text: async () => body,
   })
+  class Response {
+    constructor(body, init = {}) {
+      const h = init.headers || {}
+      return res(String(body ?? ''), { status: init.status || 200, type: h['Content-Type'] || 'text/plain' })
+    }
+  }
   const urlOf = (k) => (typeof k === 'string' ? k : k.url)
   const cache = (name) => {
     if (!stores.has(name)) stores.set(name, new Map())
@@ -172,15 +186,55 @@ function worker(files) {
     skipWaiting: () => {},
     clients: { matchAll: async () => [{ postMessage: (m) => posted.push(m) }], claim: async () => {} },
   }
-  const fetch = async (u) => {
+  const w = { down: false }
+  const fetch = async (u, init = {}) => {
     const rel = new URL(urlOf(u)).pathname.slice(1)
-    return rel in files ? res(files[rel], { etag: '"new"' }) : res('not found', { status: 404 })
+    const inm = (init.headers || {})['If-None-Match'] || null
+    if (w.down) throw new TypeError('Failed to fetch')
+    fetched.push([rel, inm])
+    if (!(rel in files)) return res('not found', { status: 404 })
+    const f = typeof files[rel] === 'string' ? { body: files[rel] } : files[rel]
+    const etag = f.etag || '"new"'
+    if (inm === etag) return res('', { status: 304, etag })
+    return res(f.body, { etag, type: f.type || typeOf(rel) })
   }
-  vm.runInNewContext(SRC, { URL, console, Set, Promise, self, caches: { open: async (n) => cache(n), keys: async () => [...stores.keys()] }, fetch })
-  return {
+  vm.runInNewContext(SRC, { URL, console, Set, Promise, JSON, Response, self, caches: { open: async (n) => cache(n), keys: async () => [...stores.keys()] }, fetch })
+  const settle = async (waits) => {
+    for (let i = 0; i < waits.length; i++) await waits[i]
+    for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  }
+  return Object.assign(w, {
     posted,
-    put: (name, key, body, etag) => cache(name).put(key, res(body, { etag })),
+    fetched,
+    files,
+    put: (name, key, body, etag, type) => cache(name).put(key, res(body, { etag, type: type || typeOf(new URL(key).pathname.slice(1)) })),
     text: async (name, key) => (await cache(name).match(key))?.body,
+    keys: async (name) => (await cache(name).keys()).map((k) => k.url),
+    // a message from the app, answered on its port
+    ask: async (data) => {
+      const waits = []
+      let answer
+      const got = new Promise((r) => { answer = r })
+      listeners.message({ data, ports: [{ postMessage: answer }], waitUntil: (p) => waits.push(p) })
+      if (!waits.length) return undefined
+      const out = await got
+      await settle(waits)
+      return out
+    },
+    // a request from the app (fetch(), cache mode no-store like api.ts) or a page; resolves to the response
+    request: async (url, { mode = 'cors', cache: c = 'no-store' } = {}) => {
+      const waits = []
+      let response
+      listeners.fetch({
+        request: { url, method: 'GET', mode, cache: c, headers: { has: () => false } },
+        respondWith: (p) => { response = p },
+        waitUntil: (p) => waits.push(p),
+      })
+      if (!response) return fetch(url)
+      const r = await response
+      await settle(waits)
+      return r
+    },
     // a navigation to the shell, served from the cache; resolves once the background revalidation is done
     open: async (url) => {
       const waits = []
@@ -191,10 +245,9 @@ function worker(files) {
         waitUntil: (p) => waits.push(p),
       })
       await response
-      for (let i = 0; i < waits.length; i++) await waits[i]
-      for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+      await settle(waits)
     },
-  }
+  })
 }
 
 const NEW_SHELL = `<!doctype html><head><link rel="icon" href="./favicon.png"><link rel="apple-touch-icon" href="./icon-180.png">
@@ -216,4 +269,26 @@ test('a new shell whose hashed asset cannot be cached is neither stored nor anno
   await w.open(SCOPE)
   assert.equal(await w.text(SW.CACHES.pages, SCOPE), '<!doctype html>old shell')
   assert.deepEqual(w.posted.filter((m) => m.type === 'agent-pages:updated'), [])
+})
+
+// The lists the app's first screen loads (store.ts loadPages) and the ones it asks the worker to keep after a fresh
+// install (offline.ts LISTS, sent with agent-pages:warm once the worker controls the app).
+const STORE = readFileSync(new URL('../apps/ui/src/lib/store.ts', import.meta.url), 'utf8')
+const OFFLINE = readFileSync(new URL('../apps/ui/src/lib/offline.ts', import.meta.url), 'utf8')
+const loadPagesSrc = STORE.slice(STORE.indexOf('async loadPages()'), STORE.indexOf('async loadInbox()'))
+const LIST_CALLS = [...loadPagesSrc.matchAll(/api<[^>]*>\('([\w/.-]+)'\)/g)].map((m) => `api/${m[1]}`).sort()
+const LISTS = [...OFFLINE.match(/const LISTS = \[([^\]]*)\]/)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort()
+
+test('after a fresh install, with the network down, the lists the app loads come from the cache', async () => {
+  assert.ok(LIST_CALLS.includes('api/items'), LIST_CALLS.join())
+  assert.deepEqual(LISTS, LIST_CALLS)
+  const w = worker({ 'api/items': '{"items":[{"id":"a"}]}', 'api/projects': '{"projects":[]}' })
+  await w.ask({ type: 'agent-pages:warm', urls: [SCOPE, ...LISTS.map((p) => SCOPE + p)] })
+  w.down = true
+  for (const p of LIST_CALLS) {
+    const r = await w.request(SCOPE + p)
+    assert.equal(r.status, 200, p)
+    assert.equal(await r.text(), w.files[p], p)
+  }
+  assert.deepEqual(w.fetched.map((f) => f[0]).filter((p) => /api\/(pages|lessons)$/.test(p)), [], 'no request for the lists that are gone')
 })

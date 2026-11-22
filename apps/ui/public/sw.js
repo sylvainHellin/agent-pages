@@ -9,8 +9,8 @@
                                     the cached ETag (If-None-Match); a changed page or shell is posted to the app
                                     ({type: 'agent-pages:updated', url, shell}), which offers a reload
      a reload of any of these       network first, the cached copy when offline
-     api/pages, api/lessons, api/items, api/projects, api/theme.css
-                                    network first, the cached copy when offline, so the lists show on a train
+     api/items, api/projects, api/theme.css
+                                    network first, the cached copy when offline, so the list shows on a train
      the rest of api/*, other methods, Range requests, media, other origins
                                     never cached
    Messages from the app (an answer on the message port):
@@ -24,7 +24,7 @@ var AgentPagesSW = (function () {
   'use strict'
   var VERSION = 'v1'
   var CACHES = { assets: 'agent-pages-assets-' + VERSION, pages: 'agent-pages-pages-' + VERSION, api: 'agent-pages-api-' + VERSION }
-  var API_LISTS = { 'api/pages': 1, 'api/lessons': 1, 'api/items': 1, 'api/projects': 1, 'api/theme.css': 1 }
+  var API_LISTS = { 'api/items': 1, 'api/projects': 1, 'api/theme.css': 1 }
   var NEVER = { 'sw.js': 1, healthz: 1, 'index.json': 1 }
   var STATIC = /\.(css|js|mjs|png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|webmanifest)$/i
   var PAGE = /\.html?$/i

@@ -59,8 +59,9 @@ export async function prefetchPages(urls: string[], { budget = 50e6 }: { budget?
   return r
 }
 
-/* The lists the app shows; the worker keeps their last copy for offline use (api/items may not exist on the server yet). */
-const LISTS = ['api/pages', 'api/lessons', 'api/projects', 'api/items']
+/* The lists the app's first screen loads (store.ts loadPages); the worker keeps their last copy for offline use.
+   tests/sw.test.mjs checks the two agree. */
+const LISTS = ['api/items', 'api/projects']
 
 /** Everything the app and its page frames loaded before the worker controlled them, so the first visit is saved too,
     and the lists, whose first requests may still have been on their way when the worker took over. */
