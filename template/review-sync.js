@@ -18,7 +18,9 @@
    {stale: true}) when another device saved since, and the device pulls and merges first.
    report.js keeps its own copy of the stored state and writes it back on every edit, so a page takes in a newer
    server state only when the reader is not typing, and reloads right after: until then it neither writes the
-   storage nor pushes, and the meta keeps the old base for the merge.
+   storage nor pushes, and the meta keeps the old base for the merge. The same holds when another tab of this device
+   (the page open twice, or the app beside it) writes the page's keys: the page stops pushing and, once the reader is
+   not typing, merges what that tab stored with what was saved here since and reloads.
    The app never merges into the storage of a page its frame shows (report.js there would write its older copy
    back): its push and its pull for that key go through the page's own, which merges only as above.
    Accepted limitation: a comment saved while another device's newer save is pending (the reader was typing) reaches
@@ -209,16 +211,54 @@
     // nothing is pushed until the load-time pull has answered (a lesson in the app: the app pulled before loading it).
     var sw = window.navigator && window.navigator.serviceWorker;
     var waiting = !!(sw && sw.controller) && !(o.lesson && framed), pulling = false;
+    // Another tab of this device (the page open twice, or the app's reader beside it) wrote this page's keys:
+    // report.js here still holds the older copy and writes it back on the next edit. Until the reader is not typing,
+    // nothing is pushed; then what the other tab stored is merged with what was saved here since, and the page reloads.
+    // part -> {from: the value before the other tab's first change, to: its latest, mine: this page's save between}
+    var foreign = null, partOf = {};
+    Object.keys(PARTS).forEach(function (p) { partOf[key(k, p)] = p; });
+    window.addEventListener('storage', function (e) {
+      var p = e && partOf[e.key]; // only the data: a change to tl-sync:<key> alone leaves what report.js holds current
+      if (!p || (e.storageArea && e.storageArea !== localStorage)) return;
+      foreign = foreign || {};
+      var f = foreign[p];
+      if (!f) foreign[p] = { from: e.oldValue, to: e.newValue };
+      else { if (e.oldValue !== f.to) f.mine = e.oldValue; f.to = e.newValue; }
+    });
+    function parse(v) { try { return v == null ? undefined : JSON.parse(v); } catch (x) { return undefined; } }
+    // Resolves true when the other tab changed what this page shows (the page then has to reload).
+    function absorb() {
+      var f = foreign, loc = read(k), th = {}, bs = {}, mine = {}, changed = false;
+      foreign = null;
+      Object.keys(PARTS).forEach(function (p) {
+        var x = f[p], now = localStorage.getItem(key(k, p));
+        mine[p] = x && now === x.to && x.mine !== undefined ? parse(x.mine) : loc[p];
+        if (x && x.from !== x.to) { changed = true; th[p] = parse(x.to); bs[p] = parse(x.from); }
+        else { th[p] = bs[p] = mine[p]; }
+      });
+      if (!changed) return false;
+      var out = merge(th, mine, bs);
+      Object.keys(PARTS).forEach(function (p) { // a part the other tab left alone stays as saved here
+        if (th[p] === mine[p]) { if (mine[p] == null) delete out[p]; else out[p] = mine[p]; }
+      });
+      if (!same(out, loc)) write(k, out);
+      return true;
+    }
     function send(keepalive) {
-      if (waiting || behind[k]) return Promise.resolve(false);
+      if (waiting || behind[k] || foreign) return Promise.resolve(false);
       return pushTo(api, path, k, keepalive);
     }
     // Pull, and take a newer state in only while the reader is not typing (report.js would write its older copy
     // back over it); resolves true when the page has to reload to show what is stored now.
     function catchUp() {
+      if (foreign) {
+        if (editing()) return Promise.resolve(false);
+        if (absorb()) { location.reload(); return Promise.resolve(true); } // the reloaded page syncs what is stored
+      }
       pulling = true;
       return req(api, path).then(function (srv) {
         waiting = false;
+        if (foreign) return false; // another tab wrote meanwhile: the next tick takes that in first
         var newer = ((srv && srv.updated) || 0) > (meta(k).at || 0);
         if (newer && editing()) { behind[k] = true; return false; }
         var r = apply(k, srv);
@@ -233,7 +273,8 @@
       if (r === 'merged' || r === 'dirty') setTimeout(function () { send(); }, 0);
     }
     setInterval(function () {
-      if (!behind[k]) send();
+      if (foreign) { if (!editing() && absorb()) location.reload(); }
+      else if (!behind[k]) send();
       else if (!pulling && !editing()) catchUp();
     }, 1500);
     function back() {

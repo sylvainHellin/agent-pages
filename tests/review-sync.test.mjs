@@ -7,7 +7,8 @@ import vm from 'node:vm'
 
 const SRC = readFileSync(new URL('../template/review-sync.js', import.meta.url), 'utf8')
 
-// Two windows of one device (the app and the lesson in its frame) share `store` (localStorage) and `net` (the server).
+// Two windows of one device (the app and the lesson in its frame, or two tabs) share `store` (localStorage) and
+// `net` (the server). A change to the store fires a "storage" event in every other window that shares it, as browsers do.
 function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = false, controlled = false, slowGets = false,
   store = new Map(), net = { server: { updated: 0, data: {} } }, parent = null } = {}) {
   const listeners = {}
@@ -15,11 +16,19 @@ function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = fa
   const gets = []
   const intervals = []
   const held = [] // GETs waiting for answer() when slowGets
+  const wins = store.wins || (store.wins = [])
+  const broadcast = (key, oldValue, newValue) => {
+    if (oldValue === newValue) return
+    for (const w of wins) {
+      if (w === win) continue
+      setTimeout(() => (w.listeners.storage || []).forEach((f) => f({ key, oldValue, newValue, storageArea: w.localStorage })), 0)
+    }
+  }
   const win = {
     localStorage: {
       getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k),
+      setItem: (k, v) => { const o = store.has(k) ? store.get(k) : null; store.set(k, String(v)); broadcast(k, o, String(v)) },
+      removeItem: (k) => { const o = store.has(k) ? store.get(k) : null; store.delete(k); broadcast(k, o, null) },
     },
     document: {
       documentElement: { getAttribute: (n) => (n === 'data-doc-id' ? docId : null) },
@@ -54,12 +63,14 @@ function browser({ docId = 'doc-1', path = '/documents/a/page.html', framed = fa
     },
   }
   win.window = win
+  win.listeners = listeners
+  wins.push(win)
   win.parent = parent || (framed ? {} : win)
   win.frames = [] // the app: its reader's iframe once a test puts it there
   vm.createContext(win)
   vm.runInContext(SRC, win)
   const ls = (k) => (store.has(k) ? JSON.parse(store.get(k)) : undefined)
-  const set = (k, v) => store.set(k, JSON.stringify(v))
+  const set = (k, v) => win.localStorage.setItem(k, JSON.stringify(v))
   return {
     win, ls, set, posts, gets, listeners,
     server: () => net.server,
@@ -341,4 +352,34 @@ test('the app beside a frame running an older review-sync without catchUp: its p
   assert.deepEqual(frame.ls('anno:L1'), [c('a')])
   assert.equal(frame.ls('tl-sync:L1').at, 3)
   assert.deepEqual(app.gets, [])
+})
+
+test('two tabs of one page: another tab writing the storage under this one\'s report.js loses neither device\'s comment', async () => {
+  // tab T shows [a]; the phone saves [a, b]; another tab opens the page and stores [a, b]; T, still holding [a], adds c
+  const store = new Map(), net = { server: { updated: 1, data: { c: [c('a')] } } }
+  const tab = (state) => {
+    const b = browser({ store, net })
+    b.win.TutorSync.page({ api: '/api/', path: 'reviews/r1', state })
+    const t = { b, memory: b.ls('anno:doc-1'), reloads: 0 } // report.js's own copy of what is stored
+    t.save = (x) => { t.memory = [...(t.memory || []), x]; b.set('anno:doc-1', t.memory) } // written back on each edit
+    t.tick = async () => {
+      await b.every()
+      await b.settle()
+      if (b.win.location.reloaded !== t.reloads) { t.reloads = b.win.location.reloaded; t.memory = b.ls('anno:doc-1') }
+    }
+    return t
+  }
+  const T = tab({ updated: 1, data: { c: [c('a')] } })
+  net.server = { updated: 2, data: { c: [c('a'), c('b')] } } // the phone added b
+  T.b.win.document.activeElement = { tagName: 'TEXTAREA' } // the reader in T is typing c
+  const O = tab({ updated: 2, data: { c: [c('a'), c('b')] } }) // the other tab: served with the newer state
+  await T.b.settle()
+  T.save(c('c'))
+  await O.tick()
+  await T.tick() // still typing
+  T.b.win.document.activeElement = null
+  for (let i = 0; i < 4; i++) { await O.tick(); await T.tick() }
+  assert.deepEqual(net.server.data.c.map((x) => x.id).sort(), ['a', 'b', 'c'])
+  assert.deepEqual(T.memory.map((x) => x.id).sort(), ['a', 'b', 'c'])
+  assert.deepEqual(O.memory.map((x) => x.id).sort(), ['a', 'b', 'c'])
 })
