@@ -106,6 +106,8 @@ Then set `base_url = "https://<machine>.<tailnet>.ts.net:8443"` in the config; H
 On an iPhone, open that URL in Safari and use Share, Add to Home Screen.
 
 The app keeps itself and every page opened in it readable with no connection: a service worker (`apps/ui/public/sw.js`, served at `/sw.js`) shows the saved copy first and asks the server for a newer one in the background, and a page's Download for offline button also saves the images it references.
+It also downloads every Open page with what it references, the pages changed last first and up to 150 MB, when the list loads and again on reconnecting or returning to the app, at most every 30 minutes; the Save Open pages offline switch (sidebar, or the phone's header menu) turns that off, for instance on a cellular-heavy day.
+A page that leaves the Open list or no longer fits the 150 MB is removed again, unless it was opened or saved with Download for offline.
 Service workers need HTTPS or localhost, so offline reading works behind `tailscale serve` or on `127.0.0.1`, not on a plain `http://` tailnet address.
 A comment saved while another device's newer save is pending reaches the server the next time the page is opened on the same device.
 If a tab is closed while its reader types and another tab of the same page on the same device holds newer data, the other device's comment can be lost.
