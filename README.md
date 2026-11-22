@@ -147,7 +147,7 @@ The server adds that script and the page's id to every page it serves with the r
 The page is listed as Sent when the delivery starts (the pi reports the queued message starting, or the server's Paseo command succeeded), so it reads as Open again once the agent revises the file; a claim that is released or taken back leaves the page as it was.
 A claimed send that never started goes back to pending when its pi releases it, or when the session registers again and the claiming pi is gone: a dead process on the server's machine, or a new pi on the claimer's own machine (the server cannot look into another machine's processes).
 Two pi on the same session on one other machine can therefore both deliver a send; this gap is accepted.
-A click while a send waits makes a new send, and the new one cancels the page's pending one.
+A click while a send waits makes a new send, which cancels the page's send only while no agent has taken it yet (state `pending`); once a send is claimed, the page disables its buttons until the send is final, so a click cannot deliver the export twice.
 `GET /api/sends?page=<page id>` lists a page's sends with their state: `pending`, `claimed`, `started`, `failed`, `held`, `cancelled` when a newer send of the page replaced one still pending, or `none` when a send found no agent after waiting out the server's first minute or a busy Paseo agent, so the page offers Start a new agent.
 The Paseo command lines are the config's `[harness.paseo]` keys; each runs as an argument list with no shell, and only UUIDs, the hex page id and paths the server chose fill their placeholders.
 

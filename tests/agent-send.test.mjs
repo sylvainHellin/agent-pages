@@ -124,7 +124,7 @@ test('the post carries the page, a send id and the export; a retry after a lost 
   assert.notEqual(b.calls[2].body.id, first.body.id)
 })
 
-test('live: queued, polled every 3 s while not final, then sent; the button waits only for the post', async () => {
+test('live: queued, polled every 3 s while not final, then sent; the button waits while the post is out or the send is claimed', async () => {
   const b = browser()
   b.win.AgentSend.page({ api: '/api/', page: PAGE, new: false })
   const c = b.controller()
@@ -137,12 +137,16 @@ test('live: queued, polled every 3 s while not final, then sent; the button wait
   const id = b.calls[0].body.id
   assert.equal(v.line.textContent, 'Queued in herdr t17')
   assert.equal(v.line.hidden, false)
-  assert.equal(v.btn.disabled, false) // a click now is a new send, which replaces this one
+  assert.equal(v.btn.disabled, false) // still pending: a click now is a new send, which replaces this one
   assert.equal(b.sentMarks(), 1) // the page records what went out, as Export does
   b.answers.get.push({ status: 200, body: { sends: [rec({ id, state: 'claimed' })] } })
   assert.deepEqual(await b.tick(), [3000])
   assert.equal(b.calls[1].url, `/api/sends?page=${PAGE}`)
   assert.equal(v.line.textContent, 'Queued in herdr t17')
+  assert.equal(v.btn.disabled, true) // claimed: the server would not cancel it, so a click would deliver twice
+  c.send()
+  await b.settle()
+  assert.equal(b.calls.filter((x) => x.method === 'POST').length, 1) // a click on a claimed send posts nothing
   b.answers.get.push({ status: 200, body: { sends: [rec({ id: 'newer', state: 'pending' }), rec({ id, state: 'started' })] } })
   assert.deepEqual(await b.tick(), [3000])
   assert.equal(v.line.textContent, 'Sent')
@@ -186,7 +190,7 @@ test('none: Start a new agent posts a new send with new: true', async () => {
   assert.notEqual(b.calls[1].body.id, first)
   assert.equal(v.again.hidden, true)
   assert.equal(v.line.textContent, 'Starting a new agent')
-  assert.equal(v.btn.disabled, false)
+  assert.equal(v.btn.disabled, true) // the new agent's send is claimed
 })
 
 test('none stored after the server start grace offers Start a new agent too; without one it points to Export', async () => {
@@ -283,7 +287,7 @@ test('a reload while a send waits picks up its state again', async () => {
   await again.settle()
   assert.equal(again.calls[0].url, `/api/sends?page=${PAGE}`)
   assert.equal(v2.line.textContent, 'Queued in herdr t17')
-  assert.equal(v2.btn.disabled, false)
+  assert.equal(v2.btn.disabled, true) // claimed
   assert.equal(again.pending(), 1) // still polled
 })
 
@@ -321,6 +325,51 @@ test('a pending send keeps Send and Start a new agent enabled; a new click repla
   c.again()
   await b.settle()
   assert.equal(b.calls.at(-1).body.new, true)
+})
+
+test('a click on a pending send posts a new send, and the server answer for the old one reads as replaced', async () => {
+  const b = browser()
+  b.win.AgentSend.page({ api: '/api/', page: PAGE, new: false })
+  const c = b.controller()
+  const v = b.view()
+  c.view(v)
+  b.answers.post.push({ status: 200, body: rec({ state: 'pending', route: 'live' }) })
+  c.send()
+  await b.settle()
+  const first = b.calls[0].body.id
+  assert.equal(v.btn.disabled, false)
+  b.answers.post.push({ status: 200, body: rec({ state: 'pending', route: 'live' }) })
+  c.send()
+  await b.settle()
+  const posts = b.calls.filter((x) => x.method === 'POST')
+  assert.equal(posts.length, 2)
+  assert.notEqual(posts[1].body.id, first) // a new send, not a retry of the first
+  assert.equal(posts[1].body.markdown, posts[0].body.markdown)
+  assert.equal(c.state().id, posts[1].body.id) // the page follows the new send
+  assert.equal(b.win.AgentSend.describe(rec({ id: first, state: 'cancelled' })).text, 'Replaced by a newer send')
+})
+
+test('a send the Paseo watcher claims shows as claimed on the next poll and disables the buttons', async () => {
+  const b = browser()
+  b.win.AgentSend.page({ api: '/api/', page: PAGE, new: true })
+  const c = b.controller()
+  const v = b.view()
+  c.view(v)
+  const agent = 'aaaaaaaa-0000-4000-8000-000000000001'
+  b.answers.post.push({ status: 200, body: rec({ state: 'pending', route: 'pending', harness: 'paseo', where: agent }) })
+  c.send()
+  await b.settle()
+  const id = b.calls[0].body.id
+  assert.equal(v.line.textContent, 'Waiting for Paseo agent aaaaaaaa')
+  assert.equal(v.btn.disabled, false)
+  assert.equal(v.again.hidden, false) // Start a new agent while it waits
+  b.answers.get.push({ status: 200, body: { sends: [rec({ id, state: 'claimed', route: 'paseo', harness: 'paseo', where: agent })] } })
+  await b.tick()
+  assert.equal(v.line.textContent, 'Sending to Paseo agent aaaaaaaa')
+  assert.equal(v.btn.disabled, true)
+  assert.equal(v.again.hidden, true)
+  assert.equal(b.pending(), 1) // still polled until it starts
+  assert.equal(b.win.AgentSend.describe(rec({ state: 'claimed', route: 'paseo' })).state, 'claimed')
 })
 
 test('the line says how long a send has waited', () => {

@@ -128,7 +128,8 @@ A status line follows: under the top bar (with a close button; a Sent line there
 It reads Sending, then one of Queued in herdr t17 (a pi with the extension has it), Waiting for pi on sylvain-mac (that pi is away), Resuming in Paseo pages, Sending to Paseo agent 1a2b3c4d, Sent once the agent starts on it, Failed: and the server's reason, or Replaced by a newer send.
 A line that is not final adds how long the send has waited, as in Waiting for pi on sylvain-mac for 12 min.
 While a send is not final, the page asks `GET /api/sends?page=<id>` every three seconds, pauses while the tab is hidden and asks again when it comes back.
-The buttons wait only while the post itself is out: a click while a send waits makes a new send, which replaces the waiting one.
+The buttons wait while the post is out and while an agent or the server has claimed the send, since a claimed send is already being delivered.
+While no agent has taken the send yet, a click makes a new send, which replaces the waiting one.
 When no agent holds the page's sessions the line reads No agent has this session, with a second button, Start a new agent, which posts the export again with `"new": true` (the line points to Export instead when the server cannot start one).
 Start a new agent also shows while a send waits for a pi that is away.
 When a pi without the extension may have the session open, the line reads A pi without Send to agent may hold this session in ~/code/project (herdr t4w): reload it, or resume anyway.

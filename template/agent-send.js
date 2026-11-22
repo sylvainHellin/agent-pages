@@ -17,8 +17,8 @@
        .resumeAnyway()            the same with force: true, offered when the server held a resume back (state
                                   held: a pi without the extension may have the session open)
        .again()                   what the second button offers now: startNew() or resumeAnyway()
-   Only the post itself disables the buttons: a click while a send waits is a new send, and the server cancels the
-   page's pending one. The send id is made here: a retry after a lost answer (offline) reuses it, so the server
+   The buttons are disabled while the post is out and while the send is claimed (an agent or the server took it and
+   delivers it); while it is still pending, a click is a new send and the server cancels the pending one. The send id is made here: a retry after a lost answer (offline) reuses it, so the server
    stores one send; a click after a final state is a new send. The send in flight is kept in localStorage
    bn-send:<page> until it is final, so a reload picks its state up again. Offline, the export is copied to the
    clipboard as Export does. */
@@ -50,22 +50,23 @@
     if (m < 60) return ' for ' + m + ' min';
     return ' for ' + Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '');
   }
-  /* A send record (POST /api/send's answer, an entry of GET /api/sends) as one line: {text, final, offerNew,
-     offer}; offer is the second button: 'new' (Start a new agent), 'force' (Resume anyway) or ''. now: seconds. */
+  /* A send record (POST /api/send's answer, an entry of GET /api/sends) as one line: {text, state, final, offerNew,
+     offer}; state is the record's (none for a route none), offer the second button: 'new' (Start a new agent),
+     'force' (Resume anyway) or ''. now: seconds. */
   function describe(r, now) {
     var st = r.state, route = r.route, canNew = !!(boot && boot.new);
     if (now == null) now = Date.now() / 1000;
     if (st === 'none' || (route === 'none' && !st)) {
-      return { text: canNew ? 'No agent has this session' : 'No agent has this session: use Export', final: true, offerNew: canNew, offer: canNew ? 'new' : '' };
+      return { text: canNew ? 'No agent has this session' : 'No agent has this session: use Export', state: 'none', final: true, offerNew: canNew, offer: canNew ? 'new' : '' };
     }
     if (st === 'held') {
       var term = String(r.terminal || '').replace(/^(Paseo agent [0-9a-fA-F]{8})-[0-9a-fA-F-]+$/, '$1');
       return { text: 'A pi without Send to agent may hold this session in ' + (r.where || 'its folder') + (term ? ' (' + term + ')' : '') +
-        ': reload it, or resume anyway', final: true, offerNew: false, offer: 'force' };
+        ': reload it, or resume anyway', state: st, final: true, offerNew: false, offer: 'force' };
     }
-    if (st === 'failed' || route === 'failed') return { text: 'Failed: ' + (r.error || 'no reason given'), final: true, offerNew: false, offer: '' };
-    if (st === 'started') return { text: 'Sent', final: true, offerNew: false, offer: '' };
-    if (st === 'cancelled') return { text: 'Replaced by a newer send', final: true, offerNew: false, offer: '' };
+    if (st === 'failed' || route === 'failed') return { text: 'Failed: ' + (r.error || 'no reason given'), state: 'failed', final: true, offerNew: false, offer: '' };
+    if (st === 'started') return { text: 'Sent', state: st, final: true, offerNew: false, offer: '' };
+    if (st === 'cancelled') return { text: 'Replaced by a newer send', state: st, final: true, offerNew: false, offer: '' };
     var text = route === 'live' ? 'Queued in ' + where(r)
       : route === 'pending' ? 'Waiting for ' + where(r)
       : route === 'resuming' ? 'Resuming in Paseo pages'
@@ -73,8 +74,8 @@
       : route === 'new' ? 'Starting a new agent'
       : 'Sending';
     // a send waiting for a pi that is away may wait long: a new agent stays one click away
-    var away = route === 'pending' && canNew;
-    return { text: text + waited(r, now), final: false, offerNew: away, offer: away ? 'new' : '' };
+    var away = route === 'pending' && st !== 'claimed' && canNew;
+    return { text: text + waited(r, now), state: st || '', final: false, offerNew: away, offer: away ? 'new' : '' };
   }
 
   function newId() {
@@ -88,7 +89,8 @@
     if (!available()) return null;
     var api = boot.api, pg = boot.page, KEY = 'bn-send:' + pg;
     var views = [], cur = null, text = '', offer = '', timer = null, misses = 0;
-    function busy() { return !!cur && cur.phase === 'posting'; }
+    // claimed: the server cancels only a pending send, so a new click would deliver the export twice
+    function busy() { return !!cur && (cur.phase === 'posting' || (cur.phase === 'waiting' && cur.state === 'claimed')); }
     function save() {
       try {
         if (cur && cur.phase !== 'final') localStorage.setItem(KEY, JSON.stringify({ id: cur.id, isNew: cur.isNew, force: cur.force, phase: cur.phase }));
@@ -110,8 +112,9 @@
       });
       if (h.change) h.change({ text: text, busy: b, final: !!cur && cur.phase === 'final', offerNew: !!offer, offer: offer });
     }
-    function set(phase, t, o) {
+    function set(phase, t, o, st) {
       cur.phase = phase;
+      cur.state = st || '';
       text = t;
       offer = o || '';
       save();
@@ -120,7 +123,7 @@
     function apply(r) {
       var d = describe(r);
       misses = 0;
-      set(d.final ? 'final' : 'waiting', d.text, d.offer);
+      set(d.final ? 'final' : 'waiting', d.text, d.offer, d.state);
       if (!d.final) schedule(POLL_MS);
     }
     function schedule(ms) {
