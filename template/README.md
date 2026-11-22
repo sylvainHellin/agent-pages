@@ -126,8 +126,13 @@ In the top bar it is a paper plane with the label Send, hidden below 560 px like
 A click posts the export Export Markdown builds to `POST /api/send` with the page's id and a send id made in the browser, and answers at once; the server's routes are in the main README, "Send to agent".
 A status line follows: under the top bar (with a close button; a Sent line there goes after eight seconds) and under the panel's buttons.
 It reads Sending, then one of Queued in herdr t17 (a pi with the extension has it), Waiting for pi on sylvain-mac (that pi is away), Resuming in Paseo pages, Sending to Paseo agent 1a2b3c4d, Sent once the agent starts on it, Failed: and the server's reason, or Replaced by a newer send.
-While a send is not final, the page asks `GET /api/sends?page=<id>` every three seconds, pauses while the tab is hidden and asks again when it comes back; the buttons wait meanwhile.
+A line that is not final adds how long the send has waited, as in Waiting for pi on sylvain-mac for 12 min.
+While a send is not final, the page asks `GET /api/sends?page=<id>` every three seconds, pauses while the tab is hidden and asks again when it comes back.
+The buttons wait only while the post itself is out: a click while a send waits makes a new send, which replaces the waiting one.
 When no agent holds the page's sessions the line reads No agent has this session, with a second button, Start a new agent, which posts the export again with `"new": true` (the line points to Export instead when the server cannot start one).
+Start a new agent also shows while a send waits for a pi that is away.
+When a pi without the extension may have the session open, the line reads A pi without Send to agent may hold this session in ~/code/project (herdr t4w): reload it, or resume anyway.
+Its second button, Resume anyway, posts the export again with `"force": true`.
 Without a network the export goes to the clipboard as with Export, and the line reads Offline: export copied.
 A click after that sends again under the same send id, so the server stores the send once even when only its answer was lost; a click after a final state is a new send.
 The send waiting for its final state sits in localStorage under `bn-send:<page id>`, so a reload picks its status up again.
