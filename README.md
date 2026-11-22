@@ -67,6 +67,9 @@ agent-pages migrate-items                                         # once, with t
 
 New pages link `template/` by `file://` path, with the theme and the Vim keys default from the config, so they open from disk with no server.
 They record the id of the agent session that wrote them (`$AGENT_PAGES_SESSION`, else `$PI_SESSION_ID`) in `<meta name="agent-pages-session">`, and the comment export repeats it, so an agent in a later session can look up the conversation behind the page.
+The line lists the sessions oldest first; `session --add` of a session the line already names moves it to the end, so the last id is the newest.
+A pi-subagents child never records its own session: the bash of a child has the child's `$PI_SESSION_ID`, so `agent-pages` follows its session file's `parentSession` header to the first session that is no subagent (the one that dispatched it), and records nothing when that chain breaks.
+A parent that wants a page credited to itself passes its id explicitly: `AGENT_PAGES_SESSION=<its $PI_SESSION_ID>` in the subagent's task, or `--session <id>`.
 `open` opens a page under a configured root from the server once it serves the current version of the file (it waits up to 15 s for Syncthing), so its comments sync between devices; otherwise it opens the file and says why.
 
 Tests: `uv run python -m unittest discover -s tests` and `node --test tests/*.test.mjs`.
@@ -74,7 +77,8 @@ Tests: `uv run python -m unittest discover -s tests` and `node --test tests/*.te
 ## Where things live
 
 - Lessons: `<lessons_dir>/<YYYY-MM-DD>_<slug>/` with `index.html`, `lesson.json` and `figures/`; `<lessons_dir>/_assets` is a symlink to `template/` (`agent-pages lesson new` creates it).
-- Server state (review sync, inbox, jobs, statuses and tags): `<lessons_dir>/_data/`, never served as files.
+- Server state (review sync, inbox, jobs, statuses and tags, Send to agent): `<lessons_dir>/_data/`, never served as files.
+- Send to agent: `_data/agents/<session>.json`, one per pi registered with the server; `_data/sends/<send id>.json` with the export beside it as `<send id>.md`.
 - Status, tags, projects, topic and summary of every page: `<lessons_dir>/_data/items.json`, keyed by the page's `data-doc-id` (its URL when it has none, `tutor:<slug>` for a tutor lesson), so a page that keeps its id keeps them through a move; the lesson tag of a page under a root is its marker, in the file.
   Only a change in the app writes it, and only the fields it sets; every other field of a tutor lesson comes from its `lesson.json` (status `open`, `done` or `archived`; `learning` and `understood` still read as open and done), which the server reads and never writes.
   The older URL-keyed `_data/pages.json` is not read for the list: `agent-pages migrate-items`, run once by hand with the server stopped (its `items.json` lock holds only within one process), copies the entry of each URL that names a page today into `items.json` under that page's key (`understood` becomes `done`, `learning` becomes `open`, a field `items.json` already has stays), prints and drops the URLs with no page now, and renames the file `pages.json.migrated`.
@@ -111,6 +115,30 @@ A page that leaves the Open list or no longer fits the 150 MB is removed again, 
 Service workers need HTTPS or localhost, so offline reading works behind `tailscale serve` or on `127.0.0.1`, not on a plain `http://` tailnet address.
 A comment saved while another device's newer save is pending reaches the server the next time the page is opened on the same device.
 If a tab is closed while its reader types and another tab of the same page on the same device holds newer data, the other device's comment can be lost.
+
+## Send to agent
+
+Send to agent hands a page's comment export to the agent session that wrote the page, queued until its current turn ends, from the desktop or the phone.
+The targets are the ids in the page's session line, newest first; an id that is not a UUID is skipped.
+
+A pi reaches the server through the `agent-pages-inbox` pi extension (in Sylvain's dotfiles, `pi/.config/pi/extensions/agent-pages-inbox`).
+On every session start it holds one stream, `GET /api/agents/listen`, naming its session, pid, host and harness (`paseo`, `herdr` for an hc terminal, else `pi`), and it reads the server's address from `base_url`.
+The server keeps one stream per session, sends a heartbeat every 20 s, drops a stream the moment its socket closes, and tells an older stream of the same session `superseded` when a new pi takes it.
+A pi loads extensions when it starts, so each running pi needs `/reload` or a restart once after the extension is installed.
+
+`POST /api/send` with `{"page": <page id>, "id": <send id from the app>, "markdown": <the export>}` stores the send and answers at once with its route.
+The app posts the export the page's own Export button builds (`bn.review.markdown()`), up to 600 kB, since the server cannot rebuild it: it depends on how each comment anchors in the reader's browser.
+
+- `live`: a pi holds one of the sessions; it gets the send, fetches the export, claims it and queues it as a follow-up.
+- `pending`: a session's pi is registered but not connected (a live process on this machine, or another machine's pi that never closed its registration), a Paseo agent holding the session is running, or the server started less than a minute ago; the send goes to that pi when it connects, and one waiting for the start is routed again after that minute.
+- `paseo`: an idle Paseo agent holds the session; the server sends the export to it with `paseo send`.
+- `resuming`: no agent holds the session but its pi session file is on this machine; the server imports it into Paseo with `--cwd <pages_dir>`, so the agent shows in the Paseo workspace `pages` and works in the session's own folder, then sends the export.
+- `failed`: the session file changed in the last 2 minutes (a pi without the extension may have it open), or the session's working folder is gone; the Export button still works.
+- `none`: nothing holds or stores the sessions; the app then offers Start a new agent, `POST /api/send` with `"new": true`, which starts a Paseo agent in the page's folder on the export and adds its session to the page.
+
+The page is listed as Sent from the claim and re-stamped when the message starts, so it reads as Open again once the agent revises the file.
+`GET /api/sends?page=<page id>` lists a page's sends with their state: `pending`, `claimed`, `started`, `failed`, or `cancelled` when a newer send of the page replaced one still pending.
+The Paseo command lines are the config's `[harness.paseo]` keys; each runs as an argument list with no shell, and only UUIDs, the hex page id and paths the server chose fill their placeholders.
 
 ## Agent skills
 

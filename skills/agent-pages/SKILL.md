@@ -21,7 +21,8 @@ A page is an HTML file whose `<main>` holds only content; the shared template ad
 
 1. `agent-pages new <dir>/YYYY-MM-DD_<slug>.html --title "..."`, next to the work it belongs to (the repo, the project folder).
    `--theme <name|path.css>` overrides the configured theme for one page; `--id` sets the storage key when the file stem is not the slug.
-   It records the current agent session (`$AGENT_PAGES_SESSION`, else `$PI_SESSION_ID`; `--session <id>` when the harness exposes neither) in `<meta name="agent-pages-session">`.
+   It records the current agent session (`$AGENT_PAGES_SESSION`, else `$PI_SESSION_ID`; `--session <id>` when the harness exposes neither) in `<meta name="agent-pages-session">`, and Send to agent later delivers the reader's comments to that session.
+   In a pi subagent it records the session that dispatched the subagent, never the subagent's own; a parent that writes pages through a subagent passes `AGENT_PAGES_SESSION=<its own $PI_SESSION_ID>` in the task to make that explicit.
 2. Replace everything inside `<main>`; leave `<head>` as it is, and add no `<style>`, `<script>`, wrapper divs or ids.
 3. `agent-pages open <path>` opens it in the browser; the hand-over names the path.
 4. `agent-pages url <path>` prints the server link of a page under a configured root; notes, mails and other devices get that link, never a `file://` path.

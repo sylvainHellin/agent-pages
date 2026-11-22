@@ -36,6 +36,10 @@
 # template/, so pages that still link the old folder (by file:// or relative path) keep their style.
 # template_aliases = ["~/old/report-template"]
 
+# Send to agent: the folder whose Paseo workspace ("pages", after the folder's name) holds the sessions the server
+# resumes in Paseo; created when first needed. The agents still work in each session's own folder.
+# pages_dir = "~/pages"
+
 # Folders the server publishes, as name = folder; a page's link is <base_url>/<name>/<path>.
 # Default: none, so `agent-pages url` has nothing to link.
 # [roots]
@@ -52,3 +56,15 @@
 #
 # [remote_open.synced]
 # "~/Documents" = "/Users/me/Documents"
+
+# Send to agent drives the Paseo CLI with these command lines, shown with their defaults. Each is split like a shell
+# would split it, each {placeholder} is filled inside its own argument, and the result runs with no shell.
+# import: resume a pi session file in Paseo ({session_file}, {pages_dir}, {page} = the page id)
+# send: queue the export for an idle agent ({agent}, {prompt_file})
+# new: start an agent in the page's folder ({cwd}, {page}, {prompt} = one line naming the page and the export file)
+# inspect: read whether an agent is running ({agent})
+# [harness.paseo]
+# import = "paseo import --provider pi --cwd {pages_dir} --label agent-pages.page={page} --json {session_file}"
+# send = "paseo send --no-wait --prompt-file {prompt_file} {agent}"
+# new = "paseo run --background --json --provider pi --cwd {cwd} --label agent-pages.page={page} {prompt}"
+# inspect = "paseo inspect --json {agent}"
