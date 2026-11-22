@@ -296,3 +296,33 @@ test('page: hidden or left while behind with a comment being typed, it neither w
   assert.deepEqual(b.ls('anno:doc-1'), [c('a'), c('c')])
   assert.equal(b.win.location.reloaded, 0)
 })
+
+test('the app pulls a lesson its frame shows while the reader types there: it asks the page to catch up, which waits until typing ends and reloads once', async () => {
+  const store = new Map(), net = { server: { updated: 3, data: { c: [c('a')] } } }
+  const app = browser({ docId: null, path: '/app/', store, net })
+  await app.win.TutorSync.pull('/api/', 'L1') // the app pulls before it loads the lesson
+  const frame = browser({ docId: 'L1', path: '/lessons/L1/', framed: true, store, net, parent: app.win })
+  app.win.frames.push(frame.win)
+  frame.win.TutorSync.page({ api: '/api/', path: 'lessons/L1/review', lesson: true, state: { updated: 3, data: { c: [c('a')] } } })
+  net.server = { updated: 4, data: { c: [c('a'), c('b')] } } // the phone added b
+  frame.win.document.activeElement = { tagName: 'TEXTAREA' }
+  frame.set('anno:L1', [c('a'), c('c')]) // report.js saves the new comment, the reader keeps typing
+  assert.equal(await app.win.TutorSync.pull('/api/', 'L1'), false) // the app comes back to the front: no reload of the frame
+  await app.settle()
+  assert.deepEqual(store.get('anno:L1'), JSON.stringify([c('a'), c('c')]))
+  assert.equal(frame.ls('tl-sync:L1').at, 3)
+  assert.equal(frame.win.location.reloaded, 0)
+  await frame.every() // still typing: the page waits
+  await frame.settle()
+  assert.deepEqual(frame.ls('anno:L1'), [c('a'), c('c')])
+  assert.equal(frame.win.location.reloaded, 0)
+  frame.win.document.activeElement = null // done typing
+  await frame.every() // the page catches up: merges and reloads
+  await frame.settle()
+  assert.deepEqual(frame.ls('anno:L1').map((x) => x.id).sort(), ['a', 'b', 'c'])
+  assert.equal(frame.win.location.reloaded, 1)
+  await frame.every() // the reloaded page pushes the merge
+  await frame.settle()
+  assert.deepEqual(net.server.data.c.map((x) => x.id).sort(), ['a', 'b', 'c'])
+  assert.equal(frame.win.location.reloaded, 1)
+})

@@ -9,7 +9,8 @@
                                 copy may carry an older state). opts = {api, path: 'reviews/<id>' | 'lessons/<slug>/review',
                                 state: {updated, data}, lesson, shared: [urls of other pages with the same data-doc-id]}
      TutorSync.pull(api, slug)  the library app (apps/ui), before a lesson page loads and when it comes back to the front;
-                                resolves true when it changed what is stored on this device
+                                resolves true when it changed what is stored on this device; for a lesson its frame
+                                shows, it asks that page to catch up (the page reloads itself) and resolves false
      TutorSync.push(api, slug)  the app, after edits; for a lesson its frame shows, through that page (the page merges)
    pull and push take an optional last argument `key`, the page's storage key, when it differs from the lesson slug.
    Last sync per page and device: localStorage tl-sync:<key> = {at: server time, sig: the data sent or received},
@@ -19,14 +20,14 @@
    server state only when the reader is not typing, and reloads right after: until then it neither writes the
    storage nor pushes, and the meta keeps the old base for the merge.
    The app never merges into the storage of a page its frame shows (report.js there would write its older copy
-   back): its push for that key goes through the page's own, which merges only as above. */
+   back): its push and its pull for that key go through the page's own, which merges only as above. */
 (function () {
   'use strict';
   if (window.TutorSync) return;
   var PARTS = { c: '', answers: ':answers', notes: ':notes', round: ':round', prev: ':prev' };
   var busy = {};
   var behind = {}; // key -> true: the server holds a newer state than this device's base (a push was refused)
-  var pages = {}; // key -> the push of the page() running here for that key
+  var pages = {}; // key -> {send, catchUp} of the page() running here for that key
   function key(k, part) { return 'anno:' + k + PARTS[part]; }
   function read(k) {
     var d = {};
@@ -167,7 +168,15 @@
     var host = hostOf(k);
     return host ? host.send(k, keepalive) : pushMerge(api, lessonPath(slug), k, keepalive);
   }
-  function pull(api, slug, k) { return slug ? pullFrom(api, lessonPath(slug), k || slug) : Promise.resolve(false); }
+  // The app's pull; for a page its frame shows, the page catches up itself (it waits while the reader types and
+  // reloads when it took a newer state in), so the app has nothing to reload.
+  function pull(api, slug, k) {
+    if (!slug) return Promise.resolve(false);
+    k = k || slug;
+    var host = hostOf(k);
+    if (host) return host.catchUp(k).then(function () { return false; }, function () { return false; });
+    return pullFrom(api, lessonPath(slug), k);
+  }
 
   // The storage key report.js uses (docIdOf there).
   function pageKey() {
@@ -210,7 +219,7 @@
       }).catch(function () { waiting = false; return false; })
         .then(function (changed) { pulling = false; if (changed) location.reload(); return changed; });
     }
-    pages[k] = send;
+    pages[k] = { send: send, catchUp: function () { return pulling ? Promise.resolve(false) : catchUp(); } };
     if (o.state) {
       var r = apply(k, o.state); // before report.js reads the storage
       if (r === 'merged' || r === 'dirty') setTimeout(function () { send(); }, 0);
@@ -220,7 +229,7 @@
       else if (!pulling && !editing()) catchUp();
     }, 1500);
     function back() {
-      if (o.lesson && framed) return; // the app's reader pulls lessons and reloads them itself
+      if (o.lesson && framed) return; // the app's reader asks the page to catch up when the app comes back
       if (!pulling) catchUp();
     }
     document.addEventListener('visibilitychange', function () {
@@ -235,6 +244,7 @@
   window.TutorSync = {
     pull: pull, push: push, read: read, merge: merge, page: page,
     hosts: function (k) { return !!pages[k]; },
-    send: function (k, keepalive) { return pages[k] ? pages[k](keepalive) : Promise.resolve(false); }
+    send: function (k, keepalive) { return pages[k] ? pages[k].send(keepalive) : Promise.resolve(false); },
+    catchUp: function (k) { return pages[k] ? pages[k].catchUp() : Promise.resolve(false); }
   };
 })();

@@ -541,6 +541,7 @@ export function ReaderView({ slug, backHash }: { slug: string; backHash: string 
   }, [slug, exists]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // leaving the reader; the app going to the background; coming back with answers from another device
+  // (for the lesson in the iframe, sync.pull asks the page to catch up: it reloads itself and pull resolves false)
   useEffect(() => {
     let lastPull = 0
     const comeBack = () => {

@@ -1,7 +1,9 @@
 /* Review sync between devices. The implementation is lessons/_assets/review-sync.js (window.TutorSync),
    loaded once from the server so lesson pages, tests and this app share one copy. It mirrors the page's
    localStorage keys anno:<key>* to GET/POST api/lessons/<slug>/review. The key is the slug for a tutor
-   lesson and the page's own storage key for an in-place lesson (setKey, from lessonDocKey). */
+   lesson and the page's own storage key for an in-place lesson (setKey, from lessonDocKey).
+   For the lesson the reader's iframe shows, pull and push go through that page's own sync: the app never
+   writes its storage, since report.js there would write its older copy back. */
 import { rootUrl } from './api'
 
 interface TutorSyncApi {
@@ -44,7 +46,8 @@ function load(): Promise<TutorSyncApi | null> {
 
 const API = () => rootUrl('api/')
 
-/** Before a lesson page loads: true when it changed what this device has stored. */
+/** Before a lesson page loads: true when it changed what this device has stored.
+ *  For the lesson the iframe shows: false, and the page catches up and reloads itself once the reader is not typing. */
 export async function pull(slug: string | null | undefined): Promise<boolean> {
   if (!slug) return false
   const t = await load()
