@@ -23,6 +23,8 @@
                                                     are past the budget, are evicted with the files they added that no saved
                                                     page still uses (a page it could not reach keeps its copy, and a page
                                                     opened in the app is never evicted)
+     {type: 'agent-pages:auto-stop'}                the switch turned off: the run going on asks for nothing more, still
+                                                    evicts the pages no longer in its urls, and answers {stopped: true}
      {type: 'agent-pages:warm', urls}               what the app loaded before this worker controlled it
      {type: 'agent-pages:cached'}                   the pages that are saved, {urls: [...]}
    Network state changes are posted as {type: 'agent-pages:net', online}, a page put in the cache as
@@ -382,6 +384,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
 
     /* Every Open page saved (agent-pages:auto, see the top of the file). */
     var autoRunning = false
+    var autoHalt = null // stops the run going on (agent-pages:auto-stop)
     function autoSave(urls, budget) {
       if (autoRunning) return Promise.resolve({ busy: true })
       autoRunning = true
@@ -397,7 +400,11 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
         }
       })
       var out = { pages: pages.length, saved: 0, unchanged: 0, bytes: 0, notSaved: [], failed: [], evicted: [] }
-      var counted = new Set(), seen = new Set(), added = {}, stop = false, done = 0, next = 0
+      var counted = new Set(), seen = new Set(), added = {}, stop = false, halted = false, done = 0, next = 0
+      /* the switch turned off: no new request; the pages not reached keep their copy (not notSaved, so not evicted) */
+      autoHalt = function () {
+        stop = halted = out.stopped = true
+      }
       function progress(running) {
         post({ type: 'agent-pages:progress', done: done, total: pages.length, running: running })
       }
@@ -455,7 +462,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       }
       function page(u) {
         if (stop) {
-          out.notSaved.push(u)
+          if (!halted) out.notSaved.push(u)
           return Promise.resolve()
         }
         var s = SW.strategy({ url: u, method: 'GET', mode: 'navigate' }, scope)
@@ -465,6 +472,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
         }
         added[s.key] = []
         return lookup(s).then(function (hit) {
+          if (halted) return null
           var etag = hit && hit.headers.get('ETag')
           return fetchNet(s.key, { headers: etag ? { 'If-None-Match': etag } : {}, cache: 'no-store', credentials: 'same-origin' }).then(function (res) {
             if (res.status === 304 && hit) {
@@ -551,6 +559,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
         return updateAuto(evict)
       }).then(function () { return out }).finally(function () {
         autoRunning = false
+        autoHalt = null
         progress(false)
       })
     }
@@ -599,6 +608,11 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       var job
       if (d.type === 'agent-pages:prefetch') job = prefetch(d.urls || [], d.budget)
       else if (d.type === 'agent-pages:auto') job = autoSave(d.urls || [], d.budget)
+      else if (d.type === 'agent-pages:auto-stop') {
+        var halt = autoHalt
+        if (halt) halt()
+        job = Promise.resolve({ stopped: !!halt })
+      }
       else if (d.type === 'agent-pages:warm') job = warm(d.urls).then(function () { return { ok: true } })
       else if (d.type === 'agent-pages:cached') job = cachedPages().then(function (urls) { return { urls: urls, online: online } })
       else return

@@ -97,6 +97,7 @@ export async function autoSave(items: { url: string; status: string; changed: nu
   }
   if (!r || r.busy || r.error) return
   await refreshSaved()
+  if (r.stopped) return
   const n = notSavedCount(r.notSaved, saved)
   if (n && n !== shownNotSaved) {
     toast.warning(`${n} Open page${n > 1 ? 's' : ''} not saved offline`, {
@@ -108,12 +109,14 @@ export async function autoSave(items: { url: string; status: string; changed: nu
 }
 
 /** The switch: kept in localStorage; turned on, it saves the Open pages of `items` at once (null: the list has not
-    loaded, so nothing runs, since an empty list would evict every page saved so far). */
+    loaded, so nothing runs, since an empty list would evict every page saved so far); turned off, it stops the run
+    going on, which asks for nothing more. */
 export function setAutoSave(on: boolean, items: { url: string; status: string; changed: number }[] | null): void {
   autoOn = on
   writeAutoSetting(localStorage, on)
   emit()
   if (on && items) autoSave(items, 'switch')
+  if (!on && supported()) ask({ type: 'agent-pages:auto-stop' }).catch(() => {})
 }
 
 /* The lists the app's first screen loads (store.ts loadPages); the worker keeps their last copy for offline use.

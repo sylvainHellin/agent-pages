@@ -400,6 +400,31 @@ test('auto: each page goes into the record once saved, so a run cut short (the w
   await run
 })
 
+test('auto: the switch turned off stops a run (no new request); the eviction still runs and the pages not reached keep their copy', async () => {
+  const files = { 'documents/a/gone.html': '<!doctype html>g' }
+  for (let i = 1; i <= 3; i++) files[`documents/a/s${i}.html`] = { body: `<!doctype html>s${i}`, etag: `"s${i}"` }
+  const w = worker(files)
+  await auto(w, ['documents/a/gone.html', 'documents/a/s1.html'])
+  files['documents/a/s1.html'] = { body: '<!doctype html>s1 v2', etag: '"s1b"' }
+  w.fetched.length = 0
+  w.slow = true
+  const run = auto(w, ['documents/a/s1.html', 'documents/a/s2.html', 'documents/a/s3.html'])
+  await w.ask({ type: 'agent-pages:auto-stop' })
+  const r = await run
+  assert.deepEqual(w.fetched, [])
+  assert.equal(r.stopped, true)
+  assert.deepEqual([...r.notSaved], [])
+  assert.deepEqual([...r.evicted].map((u) => u.slice(SCOPE.length)), ['documents/a/gone.html'])
+  assert.deepEqual(await pagesCached(w), ['documents/a/s1.html'])
+  assert.equal(await w.text(SW.CACHES.pages, SCOPE + 'documents/a/s1.html'), '<!doctype html>s1')
+})
+
+test('the switch turned off sends the stop message the worker handles', () => {
+  const set = OFFLINE.slice(OFFLINE.indexOf('export function setAutoSave'))
+  assert.match(set.slice(0, set.indexOf('\n}\n')), /'agent-pages:auto-stop'/)
+  assert.match(SRC, /d\.type === 'agent-pages:auto-stop'/)
+})
+
 test('auto: a record in the first layout ({pageUrl: [fileUrl]}) is read as the pages auto saved', async () => {
   const w = worker({})
   await w.put(SW.CACHES.pages, SCOPE + 'documents/a/old.html', '<!doctype html>old', '"o"')

@@ -18,6 +18,8 @@ export interface AutoResult {
   failed: string[]
   evicted: string[]
   busy?: boolean
+  /** the switch was turned off during the run (agent-pages:auto-stop) */
+  stopped?: boolean
   error?: string
 }
 
