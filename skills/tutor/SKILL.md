@@ -29,6 +29,7 @@ A lesson is a page of the `agent-pages` skill: read its `SKILL.md` and `figures.
   With a `vault` in the config, `--project <note name>` (repeatable) links the lesson to a project, guessed from the working directory when omitted; `--no-project` for a general topic.
 - The title names the subject in eight words at most (`How KV caching works`), as the `agent-pages` skill says for every page.
 - Write the lead paragraph yourself, and keep `title`, `topic` and `summary` in `lesson.json` in step with the page.
+  Its `status` is `open` (what `lesson new` writes), `done` or `archived`, the statuses the library app shows; older lessons may still say `learning` or `understood`, which read as open and done.
 - The first page reads in ten minutes: at most five sections and three figures; depth comes in later rounds.
 - Lesson-specific markup (recall cards, graded answers, links between lessons) is in `components.md` next to this file.
 - Teach in the style of the FastAPI tutorial:
@@ -58,4 +59,4 @@ A lesson is a page of the `agent-pages` skill: read its `SKILL.md` and `figures.
 - When the export comes back, grade each recall answer in the chat as right, partly right or wrong, with one sentence on what was missing, and put the same grades into the page as graded-answer callouts, since the user rereads the page later without the chat.
 - Feedback sent from the library app on a phone ("Send to tutor") arrives as a message naming a feedback file and a job id: grade inside the page only, then run the job-done command the message gives.
 - Revise the same page in place: rewrite the sections behind wrong answers and comments, replace the answered recall cards with two new ones on the weakest point, and hand the link back.
-- Stop once the answers are right: set `"status": "understood"` in `lesson.json`, and offer a short summary the user can keep in their own notes.
+- Stop once the answers are right: set `"status": "done"` in `lesson.json`, and offer a short summary the user can keep in their own notes.

@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -193,6 +194,7 @@ class NewPage(TempHome):
         self.assertIn('href="../_assets/report.css"', page)
         self.assertIn('href="../_assets/themes/tum.css"', page)
         self.assertTrue((d / "lesson.json").is_file())
+        self.assertEqual(json.loads((d / "lesson.json").read_text())["status"], "open")  # open, done or archived
         self.assertEqual((self.tmp / "lessons" / "_assets").resolve(), TEMPLATE_DIR.resolve())
 
 

@@ -106,7 +106,7 @@ def cmd_lesson_new(cfg: Config, a) -> None:
         "created": a.date,
         "projects": chosen,
         "tags": a.tag,
-        "status": "learning",
+        "status": "open",  # open, done or archived (the app's statuses; learning and understood still read)
     }
     (d / "lesson.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"folder:   {d}")
