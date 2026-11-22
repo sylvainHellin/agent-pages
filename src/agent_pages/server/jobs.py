@@ -90,19 +90,35 @@ def get_review(slug: str) -> dict:
 REVIEW_PARTS = ("c", "answers", "notes", "round", "prev")
 
 
-def _put(path: Path, data, extra: dict | None = None) -> dict:
+class StaleReview(Exception):
+    """A review POST based on an older state than the stored one: the device merges the newer state first."""
+
+    def __init__(self, updated: float):
+        super().__init__("another device saved this review since; merge its state first")
+        self.updated = updated
+
+
+def _put(path: Path, data, extra: dict | None = None, at=None) -> dict:
+    """Store a review record. `at`: the `updated` the device last synced (review-sync.js); a record stored since is
+    not overwritten (StaleReview). Without `at` (clients from before the check) the record is overwritten."""
     if not isinstance(data, dict):
         raise JobError("data must be an object")
+    if at is not None and (isinstance(at, bool) or not isinstance(at, (int, float))):
+        raise JobError("at must be a number")
     with _lock:
+        if at is not None:
+            stored = _read(path, {}).get("updated", 0)
+            if at < stored:
+                raise StaleReview(stored)
         rec = {"updated": time.time(), "data": {k: data[k] for k in REVIEW_PARTS if k in data}, **(extra or {})}
         _write(path, rec)
     return {"updated": rec["updated"]}
 
 
-def put_review(slug: str, data) -> dict:
+def put_review(slug: str, data, at=None) -> dict:
     if library.read_meta(slug) is None:
         raise KeyError(slug)
-    return _put(REVIEW / f"{slug}.json", data)
+    return _put(REVIEW / f"{slug}.json", data, at=at)
 
 
 # A report's review, by its review id (reports.review_id): review/pages/<id>.json, with the key and page URLs it
@@ -112,8 +128,8 @@ def get_page_review(rid: str) -> dict:
     return {"updated": rec.get("updated", 0), "data": rec.get("data", {})}
 
 
-def put_page_review(rid: str, data, key: str, urls: list[str]) -> dict:
-    return _put(REVIEW / "pages" / f"{rid}.json", data, {"key": key, "urls": urls})
+def put_page_review(rid: str, data, key: str, urls: list[str], at=None) -> dict:
+    return _put(REVIEW / "pages" / f"{rid}.json", data, {"key": key, "urls": urls}, at)
 
 
 # ---------- inbox ----------

@@ -19,7 +19,8 @@
   GET  /index.json               the indexed pages without the lesson marker, newest first, for scripts
   GET  /api/pages/status?url=u   {"sha256" of the page file, "shared": other pages with its data-doc-id}: what
                                  `agent-pages open` waits for before it opens the server's copy
-  GET/POST /api/reviews/<id>     answers, comments, notes of a report page (409 when its data-doc-id is shared)
+  GET/POST /api/reviews/<id>     answers, comments, notes of a report page (409 when its data-doc-id is shared);
+                                 POST {"data", "at"}: 409 {"stale": true} when another device saved since "at"
   GET  /lessons/<slug>/...       a lesson page and its figures; /lessons/_assets/... shared CSS/JS
   GET  /api/projects             open projects and areas of the vault
   GET  /api/theme.css            the app theme's tokens, renamed --pg-*, for the app's own colours and fonts (theme.py)
@@ -35,6 +36,7 @@
   POST /api/jobs/<id>/report     {"slug", "status": "done|failed", "note"}: from tutor-job-done (agent)
   POST /api/lessons/<slug>/feedback  {"markdown": review export}: a revise job for the lesson's agent
   GET/POST /api/lessons/<slug>/review  answers, comments, notes of a lesson, shared by the web library and the phone
+                                 (POST "at" as for /api/reviews)
 
 Every URL the UI uses is relative, so the app works at the server root and behind a path prefix.
 The settings come from the agent-pages config (host, port, roots, lessons_dir, vault, template_aliases).
@@ -281,8 +283,11 @@ class Handler(BaseHTTPRequestHandler):
         r = self.index.review_of(real.resolve())
         return self._json({"sha256": digest, "shared": r["shared"] if r else []})
 
-    def _review(self, rid: str, data=None):
-        """GET (data None) or POST a report's review record."""
+    def _stale(self, e: "jobs.StaleReview"):
+        return self._json({"error": str(e), "stale": True, "updated": e.updated}, HTTPStatus.CONFLICT)
+
+    def _review(self, rid: str, data=None, at=None):
+        """GET (data None) or POST a report's review record (at: the state the device last synced)."""
         t = self.index.review_target(rid)
         if t is None:
             return self._json({"error": "no such page"}, HTTPStatus.NOT_FOUND)
@@ -292,7 +297,9 @@ class Handler(BaseHTTPRequestHandler):
         if data is None:
             return self._json(jobs.get_page_review(rid))
         try:
-            return self._json(jobs.put_page_review(rid, data, t["key"], t["urls"]))
+            return self._json(jobs.put_page_review(rid, data, t["key"], t["urls"], at))
+        except jobs.StaleReview as e:
+            return self._stale(e)
         except jobs.JobError as e:
             return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
 
@@ -465,17 +472,21 @@ class Handler(BaseHTTPRequestHandler):
             if not self._same_origin():
                 return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
             try:
-                data = self._body(2_000_000).get("data")
+                body = self._body(2_000_000)
             except library.MetaError as e:
                 return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
-            return self._review(p[len("/api/reviews/"):].strip("/"), data if data is not None else "")
+            data = body.get("data")
+            return self._review(p[len("/api/reviews/"):].strip("/"), data if data is not None else "", body.get("at"))
         if p.startswith("/api/lessons/") and p.endswith("/review"):
             if not self._same_origin():
                 return self._json({"error": "cross-origin request refused"}, HTTPStatus.FORBIDDEN)
             try:
-                return self._json(jobs.put_review(p[len("/api/lessons/"):-len("/review")].strip("/"), self._body(2_000_000).get("data")))
+                body = self._body(2_000_000)
+                return self._json(jobs.put_review(p[len("/api/lessons/"):-len("/review")].strip("/"), body.get("data"), body.get("at")))
             except KeyError:
                 return self._json({"error": "no such lesson"}, HTTPStatus.NOT_FOUND)
+            except jobs.StaleReview as e:
+                return self._stale(e)
             except (jobs.JobError, library.MetaError) as e:
                 return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
         if p.startswith("/api/jobs/") and p.endswith("/report"):

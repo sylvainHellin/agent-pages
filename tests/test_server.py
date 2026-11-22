@@ -336,6 +336,21 @@ class ServerRoutes(unittest.TestCase):
         self.assertEqual(self.post(f"/api/{path}", {"data": {}}, {"Origin": "https://evil.example"})[0], 403)
         self.assertEqual(self.post(f"/api/{path}", {"data": []})[0], 400)
 
+    def test_review_post_from_an_older_base_is_refused(self):
+        # a device that last synced before another device wrote must merge first (review-sync.js pulls on 409)
+        self.write_page("area/ided.html", REVIEW_PAGE.format(id="ided"))
+        path = self.boot("/documents/area/ided.html")["path"]
+        for url in (f"/api/{path}", f"/api/lessons/{SLUG}/review"):
+            status, first = self.post(url, {"data": {"notes": "one"}})  # an old client sends no base: accepted
+            self.assertEqual(status, 200, url)
+            status, second = self.post(url, {"data": {"notes": "two"}, "at": first["updated"]})
+            self.assertEqual(status, 200, url)
+            status, r = self.post(url, {"data": {"notes": "stale"}, "at": first["updated"]})
+            self.assertEqual((status, r.get("stale"), r.get("updated")), (409, True, second["updated"]), url)
+            self.assertEqual(json.loads(self.get(url)[1])["data"], {"notes": "two"}, url)
+            self.assertEqual(self.post(url, {"data": {"notes": "new"}, "at": 0})[0], 409, url)  # never synced, server has data
+            self.assertEqual(self.post(url, {"data": {"notes": "x"}, "at": "soon"})[0], 400, url)
+
     def test_shared_doc_id_not_synced(self):
         self.write_page("area/twin-a.html", REVIEW_PAGE.format(id="twin"))
         self.write_page("area/reports/twin-b.html", REVIEW_PAGE.format(id="twin"))
