@@ -17,7 +17,8 @@
      {type: 'agent-pages:prefetch', urls, budget}   pages with the template files and images they reference
      {type: 'agent-pages:warm', urls}               what the app loaded before this worker controlled it
      {type: 'agent-pages:cached'}                   the pages that are saved, {urls: [...]}
-   Network state changes are posted as {type: 'agent-pages:net', online}.
+   Network state changes are posted as {type: 'agent-pages:net', online}, a page put in the cache as
+   {type: 'agent-pages:saved', url}.
    Bump VERSION when the cache layout changes: activate deletes every agent-pages cache of another version. */
 /* eslint-disable */
 var AgentPagesSW = (function () {
@@ -169,7 +170,10 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
     function store(s, res) {
       if (!cacheable(res)) return Promise.resolve(false)
       var copy = res.clone()
-      return caches.open(s.cache).then(function (c) { return c.put(s.key, copy) }).then(function () { return true }, function () { return false })
+      return caches.open(s.cache).then(function (c) { return c.put(s.key, copy) }).then(function () {
+        if (s.notify && !s.shell) post({ type: 'agent-pages:saved', url: s.key })
+        return true
+      }, function () { return false })
     }
     function offlinePage() {
       var body = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">' +
@@ -220,7 +224,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
         .then(function (res) {
           if (res.status === 304 || !cacheable(res)) return
           if (!s.notify) return store(s, res)
-          return Promise.all([cached.clone().text(), res.clone().text()]).then(function (t) {
+          return Promise.all([cached.text(), res.clone().text()]).then(function (t) {
             var changed = SW.pageBody(t[0]) !== SW.pageBody(t[1])
             var ready = changed && s.shell ? cacheShellFiles(s.key, t[1]) : Promise.resolve()
             return ready.then(function () { return store(s, res) }).then(function () {
@@ -247,7 +251,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
       }
       return lookup(s).then(function (hit) {
         if (hit) {
-          e.waitUntil(revalidate(s, hit))
+          e.waitUntil(revalidate(s, hit.clone())) // a copy: the page reads hit's body before the server answers
           return hit
         }
         return fetchNet(req).then(function (res) { e.waitUntil(store(s, res)); return res }, function () { return fail(req) })
