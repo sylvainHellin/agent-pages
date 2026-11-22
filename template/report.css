@@ -142,6 +142,10 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 :root[data-theme="dark"] .bn-theme .moon { display: block; }
 .bn-export, .bn-clear { color: var(--muted); padding: 0 .4rem; }
 .bn-export:hover { color: var(--primary); }
+.bn-send { color: var(--muted); }
+.bn-send:hover { color: var(--primary); }
+.bn-send:disabled { opacity: .55; cursor: default; }
+.bn-send[hidden], .anno-send[hidden], .bn-send-st[hidden], .anno-send-st[hidden] { display: none; }
 .bn-clear:hover { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
 .bn-vim { font: 600 .74rem/1 var(--font-mono); letter-spacing: .02em; color: var(--muted); padding: 0 .45rem; }
 .bn-search { flex: 0 1 25rem; min-width: 9rem; height: 2.25rem; display: flex; align-items: center;
@@ -479,6 +483,17 @@ body.bn-picking .bn-main { cursor: crosshair; -webkit-user-select: none; user-se
             background: var(--ink); color: var(--bg); font: 500 .8rem/1.4 var(--font); padding: .45rem .8rem;
             border-radius: var(--r-m); box-shadow: var(--shadow-lg); pointer-events: none; animation: bn-fade .12s ease-out; }
 .bn-toast[hidden] { display: none; }
+/* Send to agent: its status line under the bar (top bar button) and in the panel, one line each. */
+.bn-send-st { position: fixed; z-index: 65; top: calc(var(--bar-h) + .6rem); right: 1.25rem; max-width: min(28rem, calc(100vw - 1.5rem));
+              display: flex; align-items: center; gap: .5rem; padding: .3rem .3rem .3rem .8rem; background: var(--surface);
+              color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: var(--shadow-lg);
+              font: 500 .8rem/1.4 var(--font); animation: bn-fade .12s ease-out; }
+.bn-send-st .txt, .anno-send-st .txt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bn-send-st .anno-btn, .anno-send-st .anno-btn { flex: none; padding: .35rem .6rem; }
+.bn-send-st .x { height: 1.8rem; min-width: 1.8rem; padding: 0 .25rem; color: var(--muted); }
+.bn-send-st .x svg.i { width: 15px; height: 15px; }
+.anno-send-st { display: flex; align-items: center; gap: .5rem; margin: .55rem 0 0; font: 500 .8rem/1.4 var(--font); color: var(--ink); }
+.anno-btn:disabled { opacity: .55; cursor: default; border-color: var(--line); color: var(--muted); }
 .anno-add { position: absolute; z-index: 60; display: inline-flex; align-items: center; gap: .35rem;
             font: 600 .76rem/1 var(--font); padding: .45rem .7rem; border: 0; border-radius: var(--r-s);
             background: var(--primary); color: var(--on-primary); cursor: pointer; box-shadow: var(--shadow); }
@@ -628,8 +643,9 @@ body.bn-picking .bn-main { cursor: crosshair; -webkit-user-select: none; user-se
 }
 @media (max-width: 560px) {
   .bn-doc { display: none; }
-  /* Export and Clear all stay in the panel, which covers the screen at this width anyway. */
-  .bn-export, .bn-clear { display: none; }
+  /* Export, Send to agent and Clear all stay in the panel, which covers the screen at this width anyway. */
+  .bn-export, .bn-clear, .bn-send { display: none; }
+  .bn-send-st { right: .75rem; }
   /* An export from the panel still marks the page as read. */
   .bn-chg .bn-chg-read { display: none; }
   .bn-search { min-width: 5rem; }
@@ -645,7 +661,7 @@ body.bn-picking .bn-main { cursor: crosshair; -webkit-user-select: none; user-se
   @page { margin: 16mm 15mm; }
   body { font-size: 10pt; background: #fff; }
   .bn-bar, .bn-toc, .bn-lightbox, .bn-copy, .bn-skip, .anno-add, .anno-drawer, .anno-pop, .bn-pins,
-  .bn-pick-hl, .bn-pick-hint, .bn-modal, .bn-toast, .bn-fold, del.bn-del, .bn-chgbars, .bn-chg-pop, .q-foot { display: none !important; }
+  .bn-pick-hl, .bn-pick-hint, .bn-modal, .bn-toast, .bn-send-st, .bn-fold, del.bn-del, .bn-chgbars, .bn-chg-pop, .q-foot { display: none !important; }
   mark.bn-ins { background: none; box-shadow: none; }
   .bn-chg-new:not(tr), .bn-chg-new > td, .bn-chg-new > th { background-color: transparent !important; box-shadow: none !important; }
   mark.anno { background: none; box-shadow: none; padding: 0; }

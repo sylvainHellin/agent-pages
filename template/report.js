@@ -3,6 +3,7 @@
    This script builds the top bar, outline, collapsible sections, change marks since the last read (block and
    word diff against a baseline in localStorage), search, figure lightbox, code copy buttons, question controls
    and the review layer (text comments, element picker, general notes, answers, Markdown export (Cmd+Shift+X),
+   Send to agent next to Export on a page agent-pages serves (agent-send.js),
    Vim keys in every review text box, on by default, single-key shortcuts n c ? ] [ d and an in-page
    confirmation dialog).
    Vanilla JS, no dependencies; works from file:// and inlined by bundle.py.
@@ -135,6 +136,7 @@
     comment: '<svg class="i" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
     question: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>',
     close: '<svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+    send: '<svg class="i" viewBox="0 0 24 24"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.03.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></svg>',
     copy: '<svg class="i" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M16 4h2a2 2 0 0 1 2 2v4"/><path d="M21 14H11"/><path d="m15 10-4 4 4 4"/></svg>',
     trash: '<svg class="i" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
     diff: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3v14"/><path d="M5 10h14"/><path d="M5 21h14"/></svg>',
@@ -190,6 +192,7 @@
       '<button class="bn-btn bn-pick" id="bn-pick" type="button" aria-pressed="false" title="Comment on an element (Cmd+Shift+E)">' + ICON.pick + '<span class="lbl">Pick</span></button>' +
       '<button class="bn-btn bn-comments" id="bn-comments" type="button" aria-pressed="false" title="Comments, notes and export (c)">' + ICON.comment + '<span class="n" id="bn-comments-n">0</span><span class="bn-qcount" id="bn-q-wrap" hidden>' + ICON.question + '<span class="n" id="bn-q-n">0/0</span></span></button>' +
       '<button class="bn-btn bn-export" id="bn-export" type="button" aria-label="Export Markdown" title="Export comments, answers and notes as Markdown to the clipboard (Cmd+Shift+X)">' + ICON.copy + '</button>' +
+      '<button class="bn-btn bn-send" id="bn-send" type="button" hidden aria-label="Send to agent" title="Send comments, answers and notes to the agent session that wrote this page">' + ICON.send + '<span class="lbl">Send</span></button>' +
       '<button class="bn-btn bn-clear" id="bn-clear" type="button" aria-label="Clear all" title="Clear all comments, answers and notes on this page">' + ICON.trash + '</button>' +
       '<button class="bn-btn bn-vim" id="bn-vim" type="button" aria-pressed="false" aria-label="Vim keys" title="Vim keys in comment boxes, answers and general notes">Vim</button>' +
       '<button class="bn-btn bn-theme" id="bn-theme" type="button" title="Toggle light or dark mode" aria-label="Toggle light or dark mode">' + ICON.sun + ICON.moon + '</button>' +
@@ -1717,7 +1720,16 @@
     var btnDownload = el('button', 'anno-btn', 'Download .md');
     var btnClear = el('button', 'anno-btn danger anno-clear', 'Clear all');
     btnClear.title = 'Delete all comments, answers and notes on this page';
-    [btnExport, btnDownload, btnClear].forEach(function (b) { b.type = 'button'; actions.appendChild(b); });
+    var btnSend = el('button', 'anno-btn anno-send', 'Send to agent');
+    btnSend.title = 'Send comments, answers and notes to the agent session that wrote this page';
+    btnSend.hidden = true;
+    [btnExport, btnSend, btnDownload, btnClear].forEach(function (b) { b.type = 'button'; actions.appendChild(b); });
+    /* Send to agent's status line in the panel, with Start a new agent when no agent holds the page's sessions. */
+    var sendLine = el('p', 'anno-send-st'), sendText = el('span', 'txt'), sendNew = el('button', 'anno-btn', 'Start a new agent');
+    sendLine.setAttribute('role', 'status');
+    sendLine.hidden = true;
+    sendNew.type = 'button';
+    sendLine.appendChild(sendText); sendLine.appendChild(sendNew);
     var status = el('p', 'anno-status', '');
     var minor = el('div', 'anno-actions minor');
     var vimLabel = el('label', 'anno-vim');
@@ -1737,7 +1749,7 @@
     keysBtn.type = 'button';
     keysBtn.innerHTML = '<kbd>?</kbd> all keys';
     keysLine.appendChild(keysBtn);
-    [title, notesLabel, notesWrap, actions, status, minor, keysLine].forEach(function (n) { head.appendChild(n); });
+    [title, notesLabel, notesWrap, actions, sendLine, status, minor, keysLine].forEach(function (n) { head.appendChild(n); });
     /* Scrolling body in the export order: comments, then answers (the general notes sit above, in the head). */
     var panelBody = el('div', 'anno-body');
     var listL = el('p', 'anno-sec', 'Comments');
@@ -2018,6 +2030,49 @@
     }
     btnExport.addEventListener('click', function () { exportMd(false); });
     $('bn-export').addEventListener('click', function () { exportMd(true); });
+
+    /* ---------- Send to agent (agent-send.js, only on a page agent-pages serves) ---------- */
+    /* The top bar button's line sits under the bar like the toast, with a close button; the panel has its own line.
+       Both show the same send. A Sent line under the bar goes away after a while, the panel's stays. */
+    var sender = window.AgentSend && window.AgentSend.controller ? window.AgentSend.controller({
+      markdown: markdown,
+      exportable: function () { return !!exportable(); },
+      copy: copyText,
+      sent: markSent,
+      change: sendChanged
+    }) : null;
+    var sendBox = null, sendBoxText = null, sendBoxNew = null, sendGone = null, sendHide = 0;
+    function sendChanged(s) {
+      sendLine.hidden = !s.text;
+      if (!sendBox) return;
+      if (s.text !== sendGone) sendGone = null;
+      sendBox.hidden = !s.text || sendGone === s.text;
+      clearTimeout(sendHide);
+      if (s.final && !s.offerNew && /^(Sent|Replaced)/.test(s.text)) {
+        var t = s.text;
+        sendHide = setTimeout(function () { if (sendBoxText.textContent === t) { sendGone = t; sendBox.hidden = true; } }, 8000);
+      }
+    }
+    if (sender) {
+      sendBox = ui(el('div', 'bn-send-st'));
+      sendBox.setAttribute('role', 'status');
+      sendBox.hidden = true;
+      sendBoxText = el('span', 'txt');
+      sendBoxNew = el('button', 'anno-btn', 'Start a new agent');
+      sendBoxNew.type = 'button';
+      var sendX = el('button', 'bn-btn x');
+      sendX.type = 'button';
+      sendX.setAttribute('aria-label', 'Hide this line');
+      sendX.title = 'Hide this line';
+      sendX.innerHTML = ICON.close;
+      sendX.addEventListener('click', function () { sendGone = sendBoxText.textContent; sendBox.hidden = true; });
+      sendBox.appendChild(sendBoxText); sendBox.appendChild(sendBoxNew); sendBox.appendChild(sendX);
+      document.body.appendChild(sendBox);
+      sender.view({ btn: $('bn-send'), line: sendBoxText, again: sendBoxNew });
+      sender.view({ btn: btnSend, line: sendText, again: sendNew });
+      [$('bn-send'), btnSend].forEach(function (b) { b.addEventListener('click', function () { sendGone = null; sender.send(); }); });
+      [sendBoxNew, sendNew].forEach(function (b) { b.addEventListener('click', function () { sendGone = null; sender.startNew(); }); });
+    }
     function download() {
       var url = URL.createObjectURL(new Blob([markdown()], { type: 'text/markdown;charset=utf-8' }));
       var a = el('a');
