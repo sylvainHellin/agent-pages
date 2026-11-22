@@ -68,10 +68,10 @@ Rejected: no project grouping at first.
 Source: report comment export on 2026-11-10_tutor-library-review.html.
 Status: accepted
 
-## 2026-11-11 - Starting lessons from the phone waits until after a week of reading on the phone
-Why: the reading side is the immediate value; the hc adapter for jobs.py is half a day of work.
-Rejected: building the adapter in the first setup; never building it.
-Source: report comment export on 2026-11-10_tutor-library-review.html.
+## 2026-11-11 - New lesson from the phone starts agents on the same Paseo runner as Send to agent, built after it
+Why: the week of reading on the phone this waited for is over, and Send to agent brings the runner that replaces tuios in jobs.py.
+Rejected: never building it; a separate runner for lessons.
+Source: report comment export on 2026-11-10_tutor-library-review.html; updated by the comment export on 2026-11-21_agent-pages-next-steps.html.
 Status: accepted
 
 ## 2026-11-11 - Suhyung's touch and IME fixes go into the report-html template; Vim keys stay on with a mouse and off on touch screens
@@ -135,11 +135,11 @@ Rejected: keeping the name pages.
 Source: chat with Sylvain, 2026-11-11.
 Status: accepted
 
-## 2026-11-11 - A page is a lesson by a marker line in its head, wherever it lives
+## 2026-11-11 - A page carries the lesson tag by a marker line in its head, wherever it lives
 Why: many pages written outside the tutor skill teach a concept and belong with the lessons, and a marker inside the file travels with it through moves and Syncthing.
 Rule: `<meta name="agent-pages-kind" content="lesson">` makes a page under the server's roots an in-place lesson; absent or any other value, it is a report.
 Rule: an in-place lesson has the slug page-<first 12 hex of the SHA-1 of its server URL>, and its status, projects, tags, topic, summary and title override live in <lessons_dir>/_data/items.json under the page's data-doc-id (else its URL), never in the page file (2026-11-22: the older URL-keyed pages.json is migrated once by agent-pages migrate-items).
-Rule: the app's Move to lessons and Move to reports actions add or remove the line (POST /api/pages/kind); pages in the lessons folder never change kind.
+Rule: the line is the page's lesson tag: adding or removing the tag lesson in the app writes or removes it (PATCH /api/items); pages in the lessons folder and tutor lessons keep their lesson tag.
 Rejected: moving pages into the lessons folder (links into repos break, the page leaves its work); guessing the kind from headings (wrong both ways, the eyebrows are free text).
 Source: chat with Sylvain, 2026-11-11.
 Status: accepted
@@ -152,4 +152,32 @@ Rule: the server serves the app theme's tokens renamed --pg-* at /api/theme.css,
 Rule: one light or dark state for the app and the pages: the localStorage key bn-theme with the OS setting as fallback, as report.js; a switch in the app chrome sets it on the app and every open page, and the page's own button sets it on the app.
 Rejected: linking the theme file as is (the page tokens --muted, --accent, --primary and --ring collide with shadcn's); loading report.css in the app (its page styles and 270 kB of fonts).
 Source: chat with Sylvain, 2026-11-11.
+Status: accepted
+
+## 2026-11-22 - Every page is in one list with a status, Open, Sent, Done or Archived, and lesson is a tag
+Why: Sylvain screens what still waits on him and what waits on an agent in one place; lessons and reports were two lists only because two older tools were merged on 2026-11-11.
+Rule: the app opens on the Open pages, newest change first, with the month board one tap away; tags are free and editable on every page, and lesson is one of them.
+Rule: Sent is set when Send to agent starts delivering the export; a Sent page goes back to Open when its file changes after that, ignoring writes the server made itself.
+Rule: tutor lessons map learning to Open and understood to Done; the status lives in items.json, never in the page file.
+Rejected: keeping two kinds with a move between them; a Lesson switch as a special control (Sylvain asked for a general function, so it is a tag); naming the first status To review (Sylvain chose Open).
+Source: report comment export on 2026-11-21_agent-pages-next-steps.html.
+Status: accepted
+
+## 2026-11-22 - Send to agent delivers a page's export into the pi session that wrote it, live if one holds it, else resumed in the Paseo workspace pages
+Why: one button replaces copying the export into the right session; Export stays for any other place.
+Rule: a running pi with the agent-pages-inbox extension registers its session on start and holds one idle SSE stream to the server; no polling, and it deregisters on exit.
+Rule: an export for a live session is queued as a follow-up, so a busy agent finishes its turn first; the session is always continued, never forked.
+Rule: a session nobody holds is resumed with paseo import into the Paseo workspace pages (folder ~/pages); a session that may be held by a pi without the extension (a pi in its folder on this host, or its file written in the last 2 minutes) is not resumed without Resume anyway; a session with no file on the server offers Start a new agent.
+Rule: a page records only harness names and session ids; the commands per harness ([harness.paseo] import, send, new, inspect) live in the user config and run as argv with no shell, so nothing from a page reaches a command except validated ids.
+Rule: the page posts its export; a second click replaces only a send no agent has taken yet.
+Rejected: a constant ping from every pi (Sylvain: wasteful for a rarely used button); a herdr space named pages (Paseo shows on the phone and the Mac); forking the session; storing a continue command in the page (the server would run page content).
+Source: report comment export on 2026-11-21_agent-pages-next-steps.html; design reviewed in .agents/workflow/send-to-agent/state.md.
+Status: accepted
+
+## 2026-11-22 - Pages read offline through a hand-written service worker that keeps every page opened and downloads every Open page up to 150 MB
+Why: on the train every reopen downloaded the page and the 400 kB template again, and with no signal nothing opened.
+Rule: every file and page answers with an ETag and 304 when the copy is current; the worker serves its copy offline and revalidates online.
+Rule: the app downloads every Open page when the list loads, newest change first, under a 150 MB budget, with a switch to turn it off; a page opened or downloaded by hand is never evicted, an auto-downloaded page is removed once it is no longer Open or falls past the budget.
+Rejected: vite-plugin-pwa (a new dependency for what a short worker does); downloading on Wi-Fi only (iOS gives a web app no way to tell Wi-Fi from cellular).
+Source: report comment export on 2026-11-21_agent-pages-next-steps.html; research .agents/research/2026-11-21-pwa-offline.md.
 Status: accepted
