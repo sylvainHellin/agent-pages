@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 import re
@@ -19,7 +21,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import quote
 
-from agent_pages import config
+from agent_pages import cli, config
 from agent_pages.server import app, jobs, library, reports
 
 SLUG = "2026-01-02_test-lesson"
@@ -509,7 +511,7 @@ class ServerRoutes(unittest.TestCase):
         self.assertEqual(self.get(f"/api/lessons/{SLUG}/opened", b"{}", {"Content-Type": "application/json"})[0], 404)
         self.assertNotIn("lesson", reports.page_kind((self.home / "docs" / "area" / "plain.html").read_text()))
 
-    def test_older_stores_read_as_a_fallback_and_never_written(self):
+    def test_lesson_json_read_as_a_fallback_and_pages_json_not_read(self):
         data = self.cfg.lessons_dir / "_data"
         data.mkdir(parents=True, exist_ok=True)
         old = {INPLACE_URL: {"status": "understood", "tags": ["Lesson", "Deep  Dive"], "title": "Own"},
@@ -519,18 +521,66 @@ class ServerRoutes(unittest.TestCase):
         lesson_raw = json.dumps({"title": "A lesson", "status": "learning", "tags": ["sql"], "projects": []})
         (self.cfg.lessons_dir / SLUG / "lesson.json").write_text(lesson_raw)
         items = self.items()
-        self.assertEqual((items[INPLACE_URL]["status"], items[INPLACE_URL]["title"]), ("done", "Own"))  # URL -> the page
-        self.assertEqual(sorted(items[INPLACE_URL]["tags"]), ["deep dive", "lesson"])  # lesson is the file's marker
+        # a page now at a URL pages.json lists does not inherit that entry: only agent-pages migrate-items reads it
+        self.assertEqual((items[INPLACE_URL]["status"], items[INPLACE_URL]["title"], items[INPLACE_URL]["tags"]),
+                         ("open", "How it works", ["lesson"]))
         self.assertEqual((items["/documents/area/plain.html"]["status"], items["/documents/area/plain.html"]["tags"]),
-                         ("archived", ["old"]))
+                         ("open", []))
         self.assertEqual((items[f"/lessons/{SLUG}/"]["status"], items[f"/lessons/{SLUG}/"]["tags"]), ("open", ["sql", "lesson"]))
         self.assertFalse((data / "items.json").exists())  # reading writes nothing
-        # a PATCH stores only what it sets; the other fields still come from the older store
-        status, r = self.patch(items["/documents/area/plain.html"]["id"], {"tags": ["new"]})
-        self.assertEqual((status, r["status"], r["tags"]), (200, "archived", ["new"]))
-        self.assertEqual(set(self.stored()), {"/documents/area/plain.html"})
+        # a PATCH stores only what it sets; a tutor lesson's other fields still come from lesson.json
+        status, r = self.patch(items[f"/lessons/{SLUG}/"]["id"], {"status": "archived"})
+        self.assertEqual((status, r["status"], r["tags"]), (200, "archived", ["sql", "lesson"]))
+        self.assertEqual(set(self.stored()), {f"tutor:{SLUG}"})
         self.assertEqual((data / "pages.json").read_bytes(), raw)
         self.assertEqual((self.cfg.lessons_dir / SLUG / "lesson.json").read_text(), lesson_raw)
+
+    def migrate(self) -> str:
+        """agent-pages migrate-items with the test's config; its stdout."""
+        out = io.StringIO()
+        with mock.patch.object(config, "load", return_value=self.cfg), contextlib.redirect_stdout(out):
+            cli.main(["migrate-items"])
+        return out.getvalue()
+
+    def test_migrate_items_moves_pages_json_into_items_json_once(self):
+        data = self.cfg.lessons_dir / "_data"
+        self.write_page("area/ided.html", REVIEW_PAGE.format(id="kept"))
+        self.write_page("area/twin-a.html", REVIEW_PAGE.format(id="twin"))
+        self.write_page("area/reports/twin-b.html", REVIEW_PAGE.format(id="twin"))
+        rid = self.items()["/documents/area/ided.html"]["id"]
+        self.assertEqual(self.patch(rid, {"status": "archived"})[0], 200)  # items.json already has a status
+        old = {INPLACE_URL: {"status": "understood", "tags": ["Lesson", "Deep  Dive"], "title": "Own"},
+               "/documents/area/plain.html": {"status": "learning", "tags": ["old"]},
+               "/documents/area/ided.html": {"status": "understood", "tags": ["t"]},
+               "/documents/area/gone.html": {"status": "understood"},
+               "/documents/area/twin-a.html": {"status": "understood"}}
+        raw = json.dumps(old, indent=2).encode()
+        (data / "pages.json").write_bytes(raw)
+        out = self.migrate()
+        self.assertIn("/documents/area/gone.html", out)  # no page there now: reported and dropped
+        self.assertFalse((data / "pages.json").exists())
+        self.assertEqual((data / "pages.json.migrated").read_bytes(), raw)
+        stored = self.stored()
+        self.assertEqual({k: v for k, v in stored["2026-03-04_how-it-works"].items()},
+                         {"status": "done", "tags": ["deep dive"], "title": "Own"})  # keyed by its data-doc-id
+        self.assertEqual(stored["/documents/area/plain.html"], {"status": "open", "tags": ["old"]})
+        self.assertEqual((stored["kept"]["status"], stored["kept"]["tags"]), ("archived", ["t"]))  # never overwritten
+        self.assertNotIn("/documents/area/gone.html", stored)
+        self.assertNotIn("twin", stored)  # a shared data-doc-id would stand for both pages: dropped and reported
+        self.assertIn("/documents/area/twin-a.html", out)
+        items = self.items()
+        self.assertEqual((items[INPLACE_URL]["status"], items[INPLACE_URL]["title"], sorted(items[INPLACE_URL]["tags"])),
+                         ("done", "Own", ["deep dive", "lesson"]))
+        # the migrated fields follow a page that keeps its data-doc-id through a move
+        (self.home / "docs" / "area" / "ided.html").rename(self.home / "docs" / "area" / "reports" / "ided.html")
+        self.index.scan()
+        moved = self.items()["/documents/area/reports/ided.html"]
+        self.assertEqual((moved["id"], moved["status"], moved["tags"]), (rid, "archived", ["t"]))
+        # a second run finds nothing to do and changes nothing
+        out = self.migrate()
+        self.assertIn("nothing to migrate", out)
+        self.assertEqual(self.stored(), stored)
+        self.assertEqual((data / "pages.json.migrated").read_bytes(), raw)
 
     def test_start_writes_no_items_json(self):
         data = self.cfg.lessons_dir / "_data"
@@ -540,6 +590,7 @@ class ServerRoutes(unittest.TestCase):
         srv.server_close()
         self.items()
         self.assertFalse((data / "items.json").exists())
+        self.assertTrue((data / "pages.json").exists())  # nothing migrates it at start
 
     def tutor_item(self) -> dict:
         return self.items()[f"/lessons/{SLUG}/"]

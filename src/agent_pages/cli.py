@@ -9,6 +9,7 @@
   agent-pages fig build <file.tex|file.py>                     render a figure (texfig or matplotlib backend)
   agent-pages config                                           print the effective configuration
   agent-pages serve [--host H] [--port P]                      run the server: report pages, lessons, library app
+  agent-pages migrate-items                                    once: move _data/pages.json into _data/items.json
 
 Configuration: ~/.config/agent-pages/config.toml (AGENT_PAGES_CONFIG overrides the path); see config.example.toml.
 """

@@ -1,5 +1,14 @@
 # Decision log
 
+## 2026-11-22 - _data/pages.json is migrated once into items.json by agent-pages migrate-items, and the list never reads it
+Why: pages.json is keyed by URL while items.json is keyed by data-doc-id, so the read-time fallback lost a page's fields when the page moved and handed them to any new page written at the old URL; Sylvain's pages.json held only 3 entries, each {"status": "understood"}.
+Rule: `agent-pages migrate-items`, run by hand, copies the fields of each pages.json URL that names an indexed page into that page's items.json entry (understood -> done, learning -> open), never over a field the entry already has, under the same lock as the other items.json writes.
+Rule: a URL with no page now, or whose data-doc-id several pages share, is printed and dropped; pages.json is then renamed pages.json.migrated, so a second run does nothing; the server never runs the migration at start.
+Rule: lesson.json stays a live fallback for tutor lessons, since the tutor skill keeps writing it.
+Rejected: keeping the read-time fallback (it loses fields on a move); migrating at server start (an invisible write to Sylvain's data).
+Source: review of 8ed9c1c..one-list, dispatch brief from Sylvain's session, 2026-11-22.
+Status: accepted
+
 ## 2026-11-18 - The /lessons/ route refuses dot files, dot segments and anything that resolves into _data
 Why: the route checked only that the resolved file stayed inside the lessons folder and refused _data by the raw request string, so /lessons/<lesson>/.env, /lessons/./_data/state.json and /lessons/<lesson>/../_data/state.json were served; a review of 0884177 found it.
 Rule: a /lessons/ request with a . or .. segment or a hidden() segment is refused before any route below it, _assets included.
@@ -128,7 +137,7 @@ Status: accepted
 ## 2026-11-11 - A page is a lesson by a marker line in its head, wherever it lives
 Why: many pages written outside the tutor skill teach a concept and belong with the lessons, and a marker inside the file travels with it through moves and Syncthing.
 Rule: `<meta name="agent-pages-kind" content="lesson">` makes a page under the server's roots an in-place lesson; absent or any other value, it is a report.
-Rule: an in-place lesson has the slug page-<first 12 hex of the SHA-1 of its server URL>, and its status, projects, tags, topic, summary and title override live in <lessons_dir>/_data/pages.json keyed by that URL, never in the page file.
+Rule: an in-place lesson has the slug page-<first 12 hex of the SHA-1 of its server URL>, and its status, projects, tags, topic, summary and title override live in <lessons_dir>/_data/items.json under the page's data-doc-id (else its URL), never in the page file (2026-11-22: the older URL-keyed pages.json is migrated once by agent-pages migrate-items).
 Rule: the app's Move to lessons and Move to reports actions add or remove the line (POST /api/pages/kind); pages in the lessons folder never change kind.
 Rejected: moving pages into the lessons folder (links into repos break, the page leaves its work); guessing the kind from headings (wrong both ways, the eyebrows are free text).
 Source: chat with Sylvain, 2026-11-11.

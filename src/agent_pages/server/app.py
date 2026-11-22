@@ -45,6 +45,7 @@ import hashlib
 import json
 import mimetypes
 import re
+import sys
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -517,10 +518,9 @@ def build(cfg: Config, host: str | None = None, port: int | None = None) -> tupl
     port = cfg.port if port is None else port
     library.configure(cfg.lessons_dir, cfg.vault)
     jobs.configure(library.DATA, f"http://{host}:{port}")
-    site = Site(cfg.roots, TEMPLATE_DIR, cfg.template_aliases, exclude=[cfg.lessons_dir])
-    index = Index(site)
-    index.scan()
-    library.attach_pages(index)  # items.json is written by a PATCH only; pages.json and lesson.json are read as they are
+    index = _scanned_index(cfg)
+    site = index.site
+    library.attach_pages(index)  # items.json is written by a PATCH only; lesson.json is read as it is
     try:
         theme = cfg.theme_css(cfg.app_theme)
     except ConfigError as e:  # the app keeps its own look
@@ -543,8 +543,29 @@ def serve(cfg: Config, args) -> None:
     srv.serve_forever()
 
 
+def _scanned_index(cfg: Config) -> Index:
+    """The page index of the config's roots, scanned once."""
+    index = Index(Site(cfg.roots, TEMPLATE_DIR, cfg.template_aliases, exclude=[cfg.lessons_dir]))
+    index.scan()
+    return index
+
+
+def migrate_items(cfg: Config, _args) -> None:
+    """agent-pages migrate-items: move <lessons_dir>/_data/pages.json into items.json once (library.migrate_items)."""
+    library.configure(cfg.lessons_dir, cfg.vault)
+    try:
+        lines = library.migrate_items(_scanned_index(cfg))
+    except library.MigrationError as e:
+        print(f"agent-pages migrate-items: {e}", file=sys.stderr)
+        sys.exit(1)
+    for line in lines:
+        print(line)
+
+
 def add_parser(sub) -> None:
     p = sub.add_parser("serve", help="run the server: report pages, lessons and the library app")
     p.add_argument("--host", help="listen address (default: the config's host)")
     p.add_argument("--port", type=int, help="port (default: the config's port)")
     p.set_defaults(fn=serve)
+    p = sub.add_parser("migrate-items", help="once: move the statuses and tags of _data/pages.json into items.json")
+    p.set_defaults(fn=migrate_items)

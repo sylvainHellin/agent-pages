@@ -19,10 +19,11 @@ slug as its data-doc-id, is a page of its own): {status, tags, projects, topic, 
 lesson?}. A page that keeps its data-doc-id keeps its status and tags through a move. Statuses are open (the
 default), sent, done and archived; a sent page whose file changed after sent_at is listed as open again.
 
-items.json is written only by a PATCH and by mark_sent, with the fields they set. A field it lacks comes from the
-older stores, read on every listing and never written: _data/pages.json (URL-keyed) for a page under a root, and
-lesson.json for a tutor lesson, whose status open|done|archived (learning and understood still read as open and
-done) the tutor skill sets. A lesson.json newer than the stored entry's `updated` wins for a field whose value it
+items.json is written only by a PATCH, by mark_sent, with the fields they set, and once by migrate_items(). A field
+a tutor lesson's entry lacks comes from its lesson.json, read on every listing and never written, whose status
+open|done|archived (learning and understood still read as open and done) the tutor skill sets. A page under a root
+has only its entry: the older _data/pages.json (URL-keyed, so its fields were lost on a move and inherited by a new
+page at an old URL) is never read for the list; `agent-pages migrate-items` moves it into items.json once. A lesson.json newer than the stored entry's `updated` wins for a field whose value it
 changed since that PATCH (`lesson` keeps the values lesson.json had then), so the tutor's later edits show. A PATCH
 or a send first takes every field lesson.json wins into the entry (and `lesson`), so a change to other fields never
 hands a won field back to the older stored value.
@@ -52,7 +53,7 @@ CLOSED = {"done", "archived", "completed", "cancelled", "dropped"}
 SLUG_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_[a-z0-9][a-z0-9-]{0,80}$")
 INPLACE_RE = re.compile(r"^page-[0-9a-f]{12}$")
 DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})")
-PAGES_META = DATA / "pages.json"  # the older store of the marked pages, URL-keyed: a read-only fallback
+PAGES_META = DATA / "pages.json"  # the older store of the marked pages, URL-keyed: read only by migrate_items()
 ITEMS = DATA / "items.json"
 STATUSES = ("open", "sent", "done", "archived")
 SETTABLE = ("open", "done", "archived")  # sent is set by Send to agent (mark_sent), never by PATCH
@@ -204,7 +205,7 @@ def read_meta(slug: str) -> dict | None:
         return None
     if INPLACE_RE.match(slug):
         e = _inplace(slug)
-        entry = _report_entry(reports.review_key(e.get("doc_id"), e["url"]), e["url"], _items(), _old_pages())
+        entry = _items().get(reports.review_key(e.get("doc_id"), e["url"])) or {}
         return {"slug": slug, "title": entry.get("title") or e["title"], "url": e["url"]}
     entry = _tutor_entry(slug, _items(), _lesson_json(slug), _lesson_mtime(slug))
     return {"slug": slug, "title": entry.get("title") or _title_from_html(page) or slug}
@@ -259,11 +260,6 @@ def _items() -> dict:
         return _read_items(ITEMS) or {}
 
 
-def _old_pages() -> dict:
-    """The older store of the pages under the roots, URL-keyed; read, never written."""
-    return _read_items(PAGES_META) or {}
-
-
 def _lesson_mtime(slug: str) -> float:
     try:
         return (LESSONS / slug / "lesson.json").stat().st_mtime
@@ -286,11 +282,6 @@ def _old_fields(old) -> dict:
         if isinstance(old.get(k), str) and old[k].strip():
             entry[k] = old[k]
     return entry
-
-
-def _report_entry(key: str, url: str, items: dict, old: dict) -> dict:
-    """A page's fields: what items.json stores for its key over its entry in pages.json (by its URL, else its key)."""
-    return {**_old_fields(old.get(url) or old.get(key)), **(items.get(key) or {})}
 
 
 def _lesson_wins(stored: dict, lesson: dict, mtime: float) -> dict:
@@ -355,6 +346,51 @@ def mark_sent(key: str, at: float | None = None) -> dict:
         return entry
 
 
+class MigrationError(RuntimeError):
+    pass
+
+
+def migrate_items(index) -> list[str]:
+    """Move _data/pages.json into items.json once: each URL that names a page of `index` gives its fields to that
+    page's entry (understood -> done, learning -> open), never over a field the entry has; a URL with no page now, or
+    one whose data-doc-id several pages share, is dropped. pages.json is then renamed pages.json.migrated, so a second
+    run finds nothing. The report, one line each. MigrationError: pages.json unreadable, or a .migrated already there."""
+    done = PAGES_META.with_name(PAGES_META.name + ".migrated")
+    with _lock:
+        if not PAGES_META.exists():
+            return [f"nothing to migrate: {PAGES_META} does not exist"]
+        if done.exists():
+            raise MigrationError(f"{done} already exists; move it away to migrate {PAGES_META} again")
+        try:
+            old = json.loads(PAGES_META.read_text())
+        except (OSError, ValueError) as e:
+            raise MigrationError(f"cannot read {PAGES_META}: {e}") from e
+        if not isinstance(old, dict):
+            raise MigrationError(f"{PAGES_META} is not a JSON object")
+        keys = {e["url"]: e["key"] for e in index.all_entries()}
+        items = _items()
+        report, changed = [], False
+        for url, fields in old.items():
+            key = keys.get(url)
+            if key is None:
+                report.append(f"dropped {url}: no page at this URL now")
+                continue
+            if len(index.urls_of(key)) > 1:
+                report.append(f"dropped {url}: data-doc-id {key!r} is used by several pages")
+                continue
+            entry = items.get(key) or {}
+            new = {k: v for k, v in _old_fields(fields).items() if k not in entry}
+            if new:
+                items[key] = {**entry, **new}
+                changed = True
+            report.append(f"migrated {url} -> {key}: " + (", ".join(f"{k}={v}" for k, v in new.items()) or "nothing new"))
+        if changed:
+            _write_json(ITEMS, items)
+        PAGES_META.rename(done)
+        report.append(f"renamed {PAGES_META} to {done.name}")
+        return report
+
+
 # ---------- the one list ----------
 
 def _created(name: str, mtime: float) -> str:
@@ -372,7 +408,7 @@ def _display(path: Path) -> str:
 
 
 def _item(base: dict, entry: dict, lesson: bool, known: set[str]) -> dict:
-    """One row of the list: the page's own fields under its entry (_report_entry, _tutor_entry). A sent page whose
+    """One row of the list: the page's own fields under its entry (its items.json entry, _tutor_entry). A sent page whose
     file is newer than its sent_at is listed as open."""
     tags = [t for t in norm_tags(entry.get("tags") or []) if t != LESSON_TAG] + ([LESSON_TAG] if lesson else [])
     projects = [str(p) for p in entry.get("projects") or []]
@@ -433,8 +469,8 @@ def list_items() -> list[dict]:
     """Every page, newest change first; reads the stores and writes nothing."""
     known = project_ids()
     with _lock:
-        items, old = _items(), _old_pages()
-        out = [_item(b, _report_entry(b["key"], b["url"], items, old), b["slug"] is not None, known) for b in _page_bases()]
+        items = _items()
+        out = [_item(b, items.get(b["key"]) or {}, b["slug"] is not None, known) for b in _page_bases()]
         for base, meta in _tutor_bases():
             entry = _tutor_entry(base["slug"], items, meta, _lesson_mtime(base["slug"]))
             out.append(_item(base, entry, True, known))
