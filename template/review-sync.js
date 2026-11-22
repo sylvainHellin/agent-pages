@@ -170,7 +170,11 @@
     if (!slug) return Promise.resolve(false);
     k = k || slug;
     var host = hostOf(k);
-    return host ? host.send(k, keepalive) : pushMerge(api, lessonPath(slug), k, keepalive);
+    if (!host) return pushMerge(api, lessonPath(slug), k, keepalive);
+    // A frame copy without send (another version, as for catchUp below): the page there pushes on its own tick.
+    if (typeof host.send !== 'function') return Promise.resolve(false);
+    return Promise.resolve().then(function () { return host.send(k, keepalive); })
+      .then(function (x) { return !!x; }, function () { return false; });
   }
   // The app's pull; for a page its frame shows, the page catches up itself (it waits while the reader types and
   // reloads when it took a newer state in), so the app has nothing to reload. A frame may run an older copy of

@@ -354,6 +354,23 @@ test('the app beside a frame running an older review-sync without catchUp: its p
   assert.deepEqual(app.gets, [])
 })
 
+test('the app beside a frame running a review-sync with hosts but without send: its push resolves false and writes nothing', async () => {
+  // the page there pushes on its own tick; the app writing the storage would be overwritten by report.js there
+  const store = new Map(), net = { server: { updated: 4, data: { c: [c('a'), c('b')] } } }
+  const app = browser({ docId: null, path: '/app/', store, net })
+  const frame = browser({ docId: 'L1', path: '/lessons/L1/', framed: true, store, net, parent: app.win })
+  app.win.frames.push(frame.win)
+  frame.set('anno:L1', [c('a'), c('c')])
+  frame.set('tl-sync:L1', { at: 3, sig: JSON.stringify({ c: [c('a')] }) })
+  frame.win.TutorSync = { hosts: (k) => k === 'L1' } // a copy without send
+  assert.equal(await app.win.TutorSync.push('/api/', 'L1'), false)
+  await app.settle()
+  assert.deepEqual(frame.ls('anno:L1'), [c('a'), c('c')])
+  assert.equal(frame.ls('tl-sync:L1').at, 3)
+  assert.deepEqual(app.posts, [])
+  assert.deepEqual(app.gets, [])
+})
+
 test('two tabs of one page: another tab writing the storage under this one\'s report.js loses neither device\'s comment', async () => {
   // tab T shows [a]; the phone saves [a, b]; another tab opens the page and stores [a, b]; T, still holding [a], adds c
   const store = new Map(), net = { server: { updated: 1, data: { c: [c('a')] } } }
