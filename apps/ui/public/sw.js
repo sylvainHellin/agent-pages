@@ -20,7 +20,6 @@
    Network state changes are posted as {type: 'agent-pages:net', online}, a page put in the cache as
    {type: 'agent-pages:saved', url}.
    Bump VERSION when the cache layout changes: activate deletes every agent-pages cache of another version. */
-/* eslint-disable */
 var AgentPagesSW = (function () {
   'use strict'
   var VERSION = 'v1'
@@ -39,7 +38,7 @@ var AgentPagesSW = (function () {
     try {
       u = new URL(r.url)
       s = new URL(scope)
-    } catch (e) {
+    } catch {
       return NETWORK
     }
     if (u.origin !== s.origin || u.pathname.indexOf(s.pathname) !== 0) return NETWORK
@@ -61,7 +60,7 @@ var AgentPagesSW = (function () {
     if (rel === '' || rel === 'index.html') return swr({ key: s.origin + s.pathname, notify: true, shell: true })
     if (rel === 'app/' || rel === 'app/index.html') return swr({ key: s.origin + s.pathname + 'app/', notify: true, shell: true })
     if (MEDIA.test(rel)) return NETWORK
-    if (r.mode === 'navigate' || /\/$/.test(rel) || PAGE.test(rel)) return swr({ notify: true })
+    if (r.mode === 'navigate' || rel.endsWith('/') || PAGE.test(rel)) return swr({ notify: true })
     if (STATIC.test(rel)) return swr()
     return NETWORK
   }
@@ -78,7 +77,7 @@ var AgentPagesSW = (function () {
     var u
     try {
       u = new URL(ref, base)
-    } catch (e) {
+    } catch {
       return
     }
     if (u.origin !== new URL(base).origin || MEDIA.test(u.pathname)) return
@@ -289,7 +288,8 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
               if (out.bytes + n > budget) { out.skipped.push(u); return null }
               return store(s, res).then(function () {
                 out.bytes += n
-                page ? out.pages++ : out.files++
+                if (page) out.pages++
+                else out.files++
                 var type = res.headers.get('Content-Type') || ''
                 return /text\/(html|css)/.test(type) ? res.text().then(function (t) { return { url: u, type: type, text: t } }) : null
               })
