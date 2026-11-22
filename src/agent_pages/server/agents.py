@@ -90,8 +90,18 @@ def configure(data_dir: Path, pages_dir: Path, commands: dict[str, list[str]] | 
     close_all()
 
 
+RESTARTED = "the server restarted during delivery; check the agent before sending again"
+
+
 def start() -> None:
-    """Route the sends still waiting for the start grace once it ends."""
+    """Fail the server's own deliveries a restart cut off; route the sends still waiting for the start grace once
+    it ends."""
+    with _lock:
+        for rec in _records():
+            if rec.get("state") == "claimed" and rec.get("route") in SERVER_ROUTES and not rec.get("started_at"):
+                # the Paseo command may or may not have run: never retried, the reader checks the agent
+                rec.update(state="failed", error=RESTARTED)
+                _save(rec)
     t = threading.Timer(max(0.0, STARTED + GRACE_S - time.time()) + 0.5, after_grace)
     t.daemon = True
     t.start()
@@ -557,7 +567,8 @@ def _deliver(send_id: str, work) -> None:
         return
     try:
         work(rec)
-    except (SendError, OSError, subprocess.SubprocessError) as e:
+    except Exception as e:  # noqa: BLE001 - any error fails the send rather than leaving it claimed
+        print(f"agent-pages serve: send {send_id} failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         with _lock:
             rec = _load(send_id) or rec
             rec.update(state="failed", error=str(e)[:2000])

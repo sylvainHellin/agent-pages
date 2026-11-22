@@ -464,6 +464,31 @@ class SendToAgent(unittest.TestCase):
         self.assertEqual((body["route"], body["error"]), ("failed", "working folder removed"))
         self.assertEqual(self.paseo_calls(), [])
 
+    def test_an_unexpected_error_in_a_server_delivery_fails_the_send(self):
+        self.paseo_agent(S_NEW, status="idle")
+        with mock.patch.object(agents, "_run_send", side_effect=RuntimeError("boom")):
+            self.assertEqual(self.send()[1]["route"], "paseo")
+            rec = until(lambda: (r := self.record())["state"] == "failed" and r, what="the failure")
+        self.assertIn("boom", rec["error"])
+
+    def test_a_restart_fails_the_server_deliveries_it_cut_off(self):
+        sends = library.DATA / "sends"
+        sends.mkdir(parents=True, exist_ok=True)
+        base = {"page": RID, "key": DOC_ID, "url": "/documents/area/page.html", "sessions": [S_NEW], "session": S_NEW,
+                "created": time.time(), "claimed_at": time.time(), "markdown": str(sends / "x.md")}
+        records = {"send-cut1": {"state": "claimed", "route": "resuming", "started_at": None},
+                   "send-cut2": {"state": "claimed", "route": "new", "started_at": None},
+                   "send-done": {"state": "started", "route": "paseo", "started_at": time.time()},
+                   "send-live": {"state": "claimed", "route": "live", "started_at": None}}
+        for sid, extra in records.items():
+            (sends / f"{sid}.json").write_text(json.dumps({**base, "id": sid, **extra}))
+        agents.start()
+        states = {sid: (self.record(sid)["state"], self.record(sid)["error"]) for sid in records}
+        reason = "the server restarted during delivery; check the agent before sending again"
+        self.assertEqual(states, {"send-cut1": ("failed", reason), "send-cut2": ("failed", reason),
+                                  "send-done": ("started", None), "send-live": ("claimed", None)})
+        self.assertEqual(self.paseo_calls(), [])  # no retry
+
     def test_resume_failure_is_recorded(self):
         self.session_file(S_NEW)
         (self.state / "fail").write_text("")
