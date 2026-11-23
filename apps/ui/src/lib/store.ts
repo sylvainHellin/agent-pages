@@ -73,6 +73,11 @@ export const useStore = create<State>()((set, get) => {
     }, active ? 5000 : 20000)
   }
 
+  /* A PATCH moves a page's change time to now: the list stays newest change first, as the server sends it, so the
+     list's month sections never repeat (a repeated section key leaves stale rows behind in React). Pages are matched
+     by URL: two copies of one page share an id when they carry the same data-doc-id. */
+  const newestFirst = (pages: Item[]) => [...pages].sort((a, b) => b.changed - a.changed)
+
   function withUnknown(i: Item): Item {
     const known = new Set(get().projects.map((p) => p.id))
     return { ...i, unknown_projects: get().projects.length ? i.projects.filter((p) => !known.has(p)) : i.unknown_projects || [] }
@@ -157,7 +162,7 @@ export const useStore = create<State>()((set, get) => {
       try {
         const m = await api<Item>(`items/${encodeURIComponent(id)}`, { method: 'PATCH', body })
         const next = withUnknown(m)
-        set({ pages: get().pages.map((i) => (i.id === id ? next : i)) })
+        set({ pages: newestFirst(get().pages.map((i) => (i.url === next.url ? next : i))) })
         if (old?.slug && !next.slug && location.hash === lessonHash(old.slug)) {
           // the lesson tag is gone: the page reader shows it, once the open dialog has closed (PageView does the other way)
           setTimeout(() => navigate(pageHash(next.url), { replace: true }), 250)
@@ -172,8 +177,8 @@ export const useStore = create<State>()((set, get) => {
     async patchMany(ids, status) {
       try {
         const r = await api<{ items: Item[] }>('items', { method: 'PATCH', body: { ids, status } })
-        const next = new Map(r.items.map((m) => [m.id, withUnknown(m)]))
-        set({ pages: get().pages.map((i) => next.get(i.id) || i) })
+        const next = new Map(r.items.map((m) => [m.url, withUnknown(m)]))
+        set({ pages: newestFirst(get().pages.map((i) => next.get(i.url) || i)) })
         return r.items
       } catch (e) {
         toast.error((e as Error).message)

@@ -300,8 +300,8 @@ function Rows({ items, area, prefer, picking }: { items: Item[]; area: string; p
   }
   return (
     <>
-      {buckets.map((b) => (
-        <section key={b.label}>
+      {buckets.map((b, n) => (
+        <section key={`${n}-${b.label}`}>
           <h2 className="sticky top-[calc(var(--header-h)+var(--safe-top))] z-10 -mx-1 mt-4 bg-background/90 px-1 py-1.5 text-[11.5px] font-medium tracking-[0.04em] text-faint uppercase backdrop-blur desk:top-0">
             {b.label}
           </h2>
