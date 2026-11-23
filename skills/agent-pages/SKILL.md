@@ -45,6 +45,7 @@ A page is an HTML file whose `<main>` holds only content; the shared template ad
 - Ask through `div.question` cards (`data-type` single, multi or text; markup under Question cards in the template README), never in prose the reader has to answer somewhere else.
 - Each card stands on its own: the problem in one sentence, options that state their trade-off, and the recommended option marked "(recommended)".
   The reader does not hold the project's ticket or decision numbers in memory, so name things in words.
+- A card about images, a table or a draft sits directly below them, never in a closing "Questions" section, so the reader answers without scrolling back to match labels to pictures.
 - `data-id` is a stable slug, kept across revisions while the question stays open.
 
 ## Figures
