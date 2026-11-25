@@ -54,7 +54,6 @@ html.tl-focus thead th { top: 0; }
   .bn-table { overflow-x: auto; max-width: 100%; }
   table { font-size: .82rem; }
   textarea, input, select { font-size: 16px !important; } /* stop iOS zooming on focus */
-  .bn-bar .bn-search { display: none; }
 }
 
 /* Wide tables (3+ columns, or wider than the screen): one card per row, the column name above

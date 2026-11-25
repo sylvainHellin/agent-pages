@@ -45,7 +45,7 @@ iOS `gesture*` events and Safari's own zoom cannot be produced headless.
 | 20 | reader.css + stacked wide tables **R** | ✓s | ✓ | P: `#tutor-app-css` present, 3 tables stacked (also after a cross-link); D loads it too, its rules apply < 720 px only |
 | 21 | ~~"Opened" ping~~ | n/a | n/a | removed with the one list: nothing showed it |
 | 22 | Reader bar: back, date, topic, title | ✓ | ✓ | |
-| 23 | Status Open / Done / Archived, Sent shown (PATCH api/items) **L** | ✓ | ✓s | lesson reader menu and report page dialog; `_data/items.json` checked |
+| 23 | Status Open / Done / Archived, Sent shown (PATCH api/items) **L** | ✓ | ✓s | page reader status button and dialog; `_data/items.json` checked |
 | 24 | Project chips with unlink, picker (search, keyboard, toggle) **R** | ✓ | ✓ | D: × and picker typed "process2" + Enter; P: sheet, tap toggles; 2026-11-06: picker opened at both sizes |
 | 25 | Edit topic / title / summary / tags **R** | ✓ | ✓ | D dialog (topic), P sheet (tags); 2026-11-06: dialog and sheet opened from ⋯ |
 | 26 | Earlier / later | ✓ | ✓ | both in the ⋯ menu since the redesign |
@@ -53,7 +53,7 @@ iOS `gesture*` events and Safari's own zoom cannot be produced headless.
 | 28 | Cross-lesson links switch the reader | ✓ | ✓ | link inside the MuJoCo lesson → URDF lesson |
 | 29 | Lesson written after the list loaded | ✓ | ✓ | new folder → opens; unknown slug → "Not found" |
 | 30 | Review bar counts / hint **R** | ✓ | ✓ | "2 answers · 1 comment ready to send"; 2026-11-06 D: hint, then "notes ready to send" |
-| 31 | Send to agent from the page (Send to tutor removed) | ✓ | ✓ | 2026-11-22 against a real pi with the agent-pages-inbox extension: D 1440 px top bar Send in a tab, in the page reader frame and in the lesson reader, P 390 px panel Send to agent; each "Queued in herdr t5w" then "Sent", the pi's session got every export; no agent: "No agent has this session" with Start a new agent (not clicked); offline: "Offline: export copied" |
+| 31 | Send to agent from the page (Send to tutor removed) | ✓ | ✓ | 2026-11-22 against a real pi with the agent-pages-inbox extension: D 1440 px top bar Send in a tab, in the page reader frame (the lesson reader was merged into it on 2026-11-25), P 390 px panel Send to agent; each "Queued in herdr t5w" then "Sent", the pi's session got every export; no agent: "No agent has this session" with Start a new agent (not clicked); offline: "Offline: export copied" |
 | 32 | Waiting / revising / attention state **R** | ✓ | ✓ | queued (lesson agent busy), running, attention (fake job); 2026-11-06 D: "Waiting for the tutor…" |
 | 33 | Auto reload when the revise job is done **R** | ✓ | ✓ | iframe reloaded, "Page revised" (2026-11-06 D: job reported done with curl) |
 | 34 | Review sync between devices | ✓ | ✓ | D answer → P; P answer → D after `localStorage.clear()`; P answer while D open → D reloads on focus |
@@ -80,7 +80,7 @@ iOS `gesture*` events and Safari's own zoom cannot be produced headless.
 | 55 | Polling never resets or blurs typing **R** | ✓ | ✓ | 2 poll cycles while typing: same DOM node, value, focus, caret (2026-11-06 D: 12 s of typing, 5 s polls) |
 | 56 | Refresh on focus / visible | ✓ | ✓s | focus → lists + review pull |
 | 57 | Month board, ‹ › Today, ← →, opens on the newest lesson's month | ✓ | ✓ | Nov → Oct → Sep, → key, Today; P: same header, search below |
-| 58 | Day chips, click opens, hover preview, "+N more" popover | ✓ | n/a | 5 lessons on 3 Nov → 3 chips + "+2 more" → popover with 5 rows; chip → `#/l/<slug>`; P uses the list (59) |
+| 58 | Day chips, click opens, hover preview, "+N more" popover | ✓ | n/a | 5 lessons on 3 Nov → 3 chips + "+2 more" → popover with 5 rows; chip → `#/r/<url>`; P uses the list (59) |
 | 59 | Phone: compact month with dots, list by day, tap a day scrolls | n/a | ✓ | 2, 3 and 5 Nov tapped: the day's heading lands under the header (room added below the last day) |
 | 60 | Search / project filter / archived apply to the board | ✓ | ✓ | see 13-16; P: header menu → site2sim → 3 lessons |
 | 61 | Pinch = text size (80-200 %), reflow, anchored, persisted | n/a | ✓ | two-finger touch: root font 16 → 32 px (clamped at 200 %) and 16 → 24.8 px (155 %), `tl-text-scale` saved, same sentence under the fingers; at 200 % every one of the 19 test lessons has scrollWidth = clientWidth |
@@ -92,8 +92,8 @@ iOS `gesture*` events and Safari's own zoom cannot be produced headless.
 | 67 | One bar on a report page **L** | ✓ | ✓ | 2026-11-25: Back and the status inside the page's own bar, Download for offline and Open alone at the end of its More menu, no bar overflow at 390 px (status shows its dot only below 720 px); a page without the bar gets the app header with the status menu, tags and a More menu |
 | 68 | Areas in two levels **L** | ✓ | ✓s | sidebar Areas under Projects, tum opens its sub-areas; phone header menu lists projects then areas |
 | 69 | Tag chips filter the list **L** | ✓ | ✓ | #lesson picked: 16 pages with All, "Clear tags" |
-| 70 | Tag editor, the lesson tag moves the page between readers **L** | ✓ | ✓s | report page: Done, tags "School, Family " → #school #family, Tag as lesson → `#/l/page-…` and the marker in the file; Remove tag lesson in the lesson reader → `#/r/…`, marker gone |
-| 71 | Old links still open the page **L** | ✓ | ✓s | `#/r/<url>` of a lesson page goes on to `#/l/<slug>`; `#/reports` is the list |
+| 70 | Tag editor; the lesson tag writes the marker in the file **L** | ✓ | ✓s | report page: Done, tags "School, Family " → #school #family, Tag as lesson → the marker in the file, the page stays in the page reader; Remove tag lesson → marker gone |
+| 71 | Old links still open the page **L** | ✓ | ✓s | 2026-11-25: `#/l/<marked page>` and `#/l/<tutor lesson>` go on to `#/r/<url>` (replace), an unknown slug says "No lesson …"; `#/reports` is the list |
 | 72 | Select mode: checkboxes, Select all shown, Open / Done / Archived for the selection **L** | ✓ | ✓ | 2026-11-22 on a fresh copy (149 open): 3 rows → Done (Open 146, Done 5), Select all shown (145, 4 pages with a shared data-doc-id cannot be picked), Select none, Esc leaves; P: bar above the tab bar, a tap on a row toggles it, 2 → Archived, × leaves |
 | 73 | Offline: app, lists and opened pages | ✓ | n/a | 2026-11-22, headless Chromium (Playwright) on localhost, a temp root with one `agent-pages new` page and an image: offline, reload → the list from the cached api/items (re-checked 2026-11-22 at 390 px after the one list: 3 Open rows offline after a fresh install), page in the app with report.css, report.js, the image and the app's buttons in its bar; the page alone; an unsaved page → "Offline. This page was not saved…" |
 | 74 | Offline badge | ✓ | n/a | 2026-11-22: "Offline: saved copies" after the worker's request failed (Chromium headless keeps navigator.onLine true when offline is emulated); gone once a request succeeds |
@@ -128,23 +128,23 @@ plus a "Jobs" tab.
 17. Stats: n pages, m changed this week (list header); n pages in the month · m projects · k done (board footer). **W**
 18. Empty list how-to. **W+M**
 
-## Readers (`#/l/<slug>` for a lesson, `#/r/<url>` for any other page)
-19. Lesson page in an iframe; slug changes replace the iframe location (no extra history entries). **M**
+## Page reader (`#/r/<url>` for every page; `#/l/<slug>` goes on to it)
+19. Every page, a lesson included, in an iframe of the page reader; a new url replaces the iframe location (no extra history entries). The lesson reader (`ReaderView.tsx`, its app bar and review bar) was merged into it on 2026-11-25. **M**
 20. `reader.css` injected into the page (media-gated to phone widths) + wide tables stacked as cards. **M**
 21. ~~"Opened" ping~~: removed with the one list; nothing showed it. **W+M**
-22. Reader bar: back, date, topic, title. **W+M**
-23. Status Open / Done / Archived in the bar of both readers (`PATCH api/items/<id>`); Sent shows while an agent has the page (Send to agent sets it, a change of the page file opens it again). **W+M**
+22. One bar, the page's own: Back, title, search, Pick, comments, status, More menu. **W+M**
+23. Status Open / Done / Archived from the status button (`PATCH api/items/<id>`); Sent shows while an agent has the page (Send to agent sets it, a change of the page file opens it again). **W+M**
 24. Project chips with unlink, "+ project" picker (search, keyboard, toggle). **W**
 25. Edit topic / title / summary (PATCH): dialog on desktop, sheet on phone; tags have their own editor (70). **W**
-26. Earlier / later lesson. **W**
-27. Copy link to the lesson; open the page alone in a new tab. **W**
-28. Cross-lesson links inside a page switch the app's reader (`report.js` sets `#/l/<slug>` on the parent). **W+M**
-29. A lesson made after the list loaded is found (reload once before "not found"). **M**
-30. Review bar under the page: counts of answers / comments / notes ready, hint when empty, hidden when the page has no review layer. **W+M**
-31. ~~Send to tutor~~: removed, since it queued a tuios revise job; the page's own Send to agent (top bar and comments panel, `template/agent-send.js`) sends its export to the agent session that wrote it, in both readers too, and the review bar points to the panel ("2 answers ready to send from the page's comments panel"). **new**
-32. Waiting / revising / attention state while a revise job for the lesson is active. **W+M**
-33. Auto reload of the page when the revise job finishes ("Page revised"); failure toast. **W+M**
-34. Review sync (`review-sync.js`): pull before the page loads, push every 1.5 s while reading, on leaving the lesson and when hidden; on return to the front pull and reload if changed. **W+M**
+26. Earlier / Later lesson in the More menu of a page with the lesson tag, in date order. **W**
+27. Copy link and Open the page alone in the More menu. **W**
+28. Cross-lesson links inside a page switch the app's reader (`report.js` sets `#/l/<slug>` on the parent, which goes on to `#/r/<url>`). **W+M**
+29. A lesson made after the list loaded is found at `#/l/<slug>` (reload once before "No lesson …"). **M**
+30. ~~Review bar under the page~~: removed with the lesson reader; the page's comments button counts what is ready and its panel sends it. **W+M**
+31. ~~Send to tutor~~: removed, since it queued a tuios revise job; the page's own Send to agent (More menu and comments panel, `template/agent-send.js`) sends its export to the agent session that wrote it. **new**
+32. ~~Waiting / revising / attention state of a revise job in the reader~~: removed with the lesson reader; nothing in the app starts a revise job since Send to tutor went, and the Jobs view still shows any. **W+M**
+33. ~~Auto reload when a revise job finishes~~: removed with 32. **W+M**
+34. Review sync (`review-sync.js`): the server puts it and the stored review state into the head of every page it serves, so the page itself pulls, pushes while reading and on leaving; the app no longer runs its own copy (`src/lib/sync.ts` removed). **W+M**
 
 ## New lesson (`#/new`, also `#/links`)
 35. Topic textarea ("What do you want to learn?"). **W+M**
@@ -177,17 +177,17 @@ plus a "Jobs" tab.
 58. A day shows its pages as one-line chips: the project's colour as a small dot (ring = open, ring with a centre = sent, filled = done, grey = archived) + the title; click opens the page's reader; hover shows the facts (10); more than 3 → "+N more" popover with the whole day; today has its day number filled in the primary colour. **new**
 59. Phone (< 900 px): the month compact (day numbers with coloured dots) and that month's pages listed by day under it; tapping a day scrolls the list to that day. **new**
 60. Search, the status and tag chips and the project or area filter (sidebar / phone header menu) filter the board; with a search the footer counts matches in the month and links the other months that have some. **new**
-61. Pinch on a phone changes the text size of the lesson (80-200 %), so lines rewrap to the screen instead of running off it: the page's own zoom is off in the reader, the root font size follows the fingers (iOS `gesture*` events, two-finger touch distance elsewhere), the line under the fingers stays in place, and the size is kept for every lesson on that device (localStorage `tl-text-scale`). Done in `src/lib/reader-page.ts` + `public/reader.css`; the lesson HTML is unchanged. **new**
-62. Text size A− / percentage (reset) / A+ in the reader's ⋯ menu at both sizes. **new**
+61. Pinch on a phone changes the text size of the page (80-200 %), so lines rewrap to the screen instead of running off it: the page's own zoom is off in the reader, the root font size follows the fingers (iOS `gesture*` events, two-finger touch distance elsewhere), the line under the fingers stays in place, and the size is kept for every page on that device (localStorage `tl-text-scale`). Done in `src/lib/reader-page.ts` + `public/reader.css`; the page HTML is unchanged. **new**
+62. Text size A− / percentage (reset) / A+ in the More menu of every page, which stays open while you click them. **new**
 63. At large text images, videos and SVG stay within the screen; code, formulas and unstacked tables scroll sideways; question rows and long badges wrap. **new**
-64. Focus mode: a single tap on the lesson text (not on a link, button, field, answer, summary, figure, comment or the page's controls; not after a scroll, a text selection or a pinch) hides the app bar, the review bar and the page's own toolbar; tap again to bring them back; Esc or ⋯ → Hide controls on desktop; a one-time hint "Tap the text to show controls"; safe-area insets stay. (The reader never shows the phone tab bar.) **new**
+64. Hide the bar: Hide the bar in the More menu or Esc hides the page's bar; a tap on the text with a finger or pen (not a mouse click; not on a link, button, field, answer, summary, figure, comment or control; not after a scroll, a selection or a pinch) toggles it; Esc brings it back; a one-time hint "Tap the text to show the bar"; safe-area insets stay. (The reader never shows the phone tab bar.) **new**
 65. Look: the colours and fonts of the app theme (`app_theme` in the config, else `lesson_theme`; Prussian ink and ocean blue for `basenord`, TUM blue #0065BD and Helvetica Neue for `tum`). While a lesson or a report page fills the screen, the app's bars take that page's own tokens (`borrowPageTokens` in `src/lib/theme.ts`), so a TUM lesson sits in a TUM frame; leaving it gives the app theme back. The server's `api/theme.css` carries the theme's tokens (report.css's, then the theme file's, light and dark) renamed `--pg-*`; `src/index.css` maps the shadcn tokens onto them (background = page `--bg`, popover and sidebar = `--surface`, muted and hover = `--surface-2`, foreground = `--ink`, muted text = `--muted`, border = `--line`, field border = `--line-strong`, primary = the theme's brand colour, attention text = the theme's `--accent`, fonts = `--font`, `--font-display`, `--font-mono`). When that stylesheet does not load, the app keeps its own look: Pretendard, zinc neutrals, teal #0e6e64. Also: desaturated project colours as dots, 13-14 px UI text, hairlines instead of nested cards, radius 8-10 px, ghost icon buttons with tooltips, 150 ms transitions; translucent blurred phone header and tab bar; New lesson in one column with a slim sticky action bar. **new**
-66. Light and dark, one state with the pages: the same localStorage key `bn-theme` and the same fallback to the OS setting as `report.js`, `data-theme` on the app's `<html>` before the first paint (index.html). A switch in the desktop sidebar header, the phone header, the report page bar and the reader's ⋯ menu changes the app and every open page iframe at once (`data-theme`, `data-theme-src="stored"`); the page's own button (#bn-theme) changes the app too (MutationObserver on the page's `<html>`, and the storage event). `<meta name=theme-color>` follows the background, so the iOS status bar matches. Done in `src/lib/theme.ts` and `src/components/theme-toggle.tsx`. **new**
-67. A page in the page reader (#/r/...) keeps a single top bar, its own: the app puts Back and a status button into the page's bar (same origin) and Download for offline and Open the page alone into the bar's More menu; the status button opens the Status and tags dialog (status, tags, projects, Edit details). The app shows its own header, with the status menu, the tags button and a More menu (light or dark, Download for offline, Open the page alone), only when it cannot reach the page. **new**
+66. Light and dark, one state with the pages: the same localStorage key `bn-theme` and the same fallback to the OS setting as `report.js`, `data-theme` on the app's `<html>` before the first paint (index.html). A switch in the desktop sidebar header, the phone header, and the page's More menu changes the app and every open page iframe at once (`data-theme`, `data-theme-src="stored"`); the page's own menu item (#bn-theme) changes the app too (MutationObserver on the page's `<html>`, and the storage event). `<meta name=theme-color>` follows the background, so the iOS status bar matches. Done in `src/lib/theme.ts` and `src/components/theme-toggle.tsx`. **new**
+67. Every page in the page reader keeps a single top bar, its own: the app puts Back and a status button into the page's bar (same origin) and its items (text size, Hide the bar, Earlier / Later lesson, Copy link, Download for offline, Open the page alone) into the bar's More menu; the status button opens the Status and tags dialog (status, tags, projects, Edit details). The app shows its own header, with the status menu, the tags button and a More menu, only when it cannot reach the page. **new**
 68. Areas in two levels: the sidebar (desktop) and the header menu (phone) list the groups (first folder) with counts after the projects, a picked group (`#/reports?area=<a>`) opening its sub-areas; a row names only the area below the one picked. **new**
 69. Tag chips under the status chips: the 12 most used tags of the pages in view (+N more), several can be picked (a page must carry them all), Clear tags. **new**
-70. Tags on every page, in both readers (tags button with the count; dialog on desktop, sheet on phone): × removes one, the field adds one or several (Enter, comma), suggestions from the list's tags, lower case. The lesson tag of a page under a root writes or removes the lesson marker in the page file and moves the page to the other reader; a tutor lesson keeps its lesson tag. **new**
-71. Old links keep working: `#/l/<slug>` opens a lesson, `#/r/<url>` of a page with the lesson tag goes on to `#/l/<slug>`, `#/reports` is the list and `#/reports?area=<a>` one area. **new**
+70. Tags on every page (Status and tags dialog on desktop, sheet on phone): × removes one, the field adds one or several (Enter, comma), suggestions from the list's tags, lower case. The lesson tag of a page under a root writes or removes the lesson marker in the page file; it changes the list's filter, not the reader; a tutor lesson keeps its lesson tag. **new**
+71. Old links keep working: `#/l/<slug>` goes on to the page reader of that lesson, `#/reports` is the list and `#/reports?area=<a>` one area. **new**
 72. Select mode for clearing a backlog: Select (beside List / Month, list view only) puts a checkbox on every row, a tap on a row toggles it; a bar under the list (above the tab bar on the phone) shows how many are selected, Select all shown / Select none, and Open, Done, Archived, which set the status of the selected pages in one `PATCH api/items {ids, status}` (all or none); a page whose data-doc-id other pages share cannot be picked. Cancel, × or Esc leaves. **new**
 
 ## Offline reading (2026-11-22)

@@ -12,8 +12,7 @@ import { OfflineBadge } from '@/components/offline'
 import { JobsView } from '@/views/JobsView'
 import { ListView } from '@/views/LibraryView'
 import { NewLessonView } from '@/views/NewLessonView'
-import { PageView } from '@/views/PageView'
-import { ReaderView } from '@/views/ReaderView'
+import { LessonRedirect, PageView } from '@/views/PageView'
 
 export default function App() {
   const hash = useHash()
@@ -90,7 +89,7 @@ export default function App() {
   let view: React.ReactNode
   switch (route.name) {
     case 'lesson':
-      view = <ReaderView slug={route.slug} backHash={back.current} />
+      view = <LessonRedirect slug={route.slug} />
       break
     case 'project':
       view = <ListView scope={{ kind: 'project', id: route.id }} />

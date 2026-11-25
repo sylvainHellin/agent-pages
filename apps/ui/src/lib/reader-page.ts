@@ -1,9 +1,10 @@
-/* What the app adds to a lesson page in the reader's iframe (same origin; the lesson HTML stays as it is):
+/* What the app adds to a page in the reader's iframe (same origin; the page's HTML stays as it is):
      - reader.css (phone reading sizes, stacked wide tables, text size, focus mode) and the table labels,
      - the text size: --tl-fs on <html>, which scales the root font size so lines rewrap to the screen width,
      - pinch to change the text size (iOS gesture events, two-finger touch distance elsewhere), with the
        native page zoom stopped, so a pinch never pushes lines off the screen,
-     - a tap on the text (not on a control, not a scroll, a selection or a pinch) and Esc: focus mode,
+     - a tap on the text with a finger or pen (not a mouse click, not on a control, not a scroll, a selection or a
+       pinch) and Esc: focus mode, which hides the page's bar,
      - the app's light or dark mode, and the page's own toggle followed by the app (theme.ts).
    Every listener is attached once per document; dressPage() may run many times while a page loads. */
 import { create } from 'zustand'
@@ -319,6 +320,7 @@ function wire(d: Document, w: Window, hooks: PageHooks) {
       pending = 0
       const t = e.target as Element | null
       const ok =
+        e.pointerType !== 'mouse' && // a click on a report page is for reading and commenting; Esc hides the bar
         !again &&
         pointers.size === 1 &&
         e.isPrimary &&

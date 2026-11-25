@@ -661,6 +661,8 @@ body.bn-picking .bn-main { cursor: crosshair; -webkit-user-select: none; user-se
 }
 @media (max-width: 420px) {
   .bn-search { min-width: 3.5rem; }
+  /* too narrow for "Search this page": the magnifier alone, the text shows once the field has focus */
+  .bn-search:not(:focus-within) input::placeholder { color: transparent; }
 }
 
 /* ============ Print: content only, light tokens ============ */

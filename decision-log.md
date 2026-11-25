@@ -190,3 +190,9 @@ Rule: the bar no longer names the current section next to the title; the outline
 Rule: the tags button left the page bar, since the status button opens the same Status and tags dialog.
 Source: chat with Sylvain, 2026-11-25.
 Status: accepted
+
+## 2026-11-25 - Every page opens in one reader, the page reader, and lesson is only a tag
+Why: the one list (2026-11-22) made lesson a tag, but a lesson still opened in its own reader with a second app bar above the page's bar, the title twice and two More menus.
+Decision: `#/r/<url>` reads every page, tutor lessons included; `#/l/<slug>` only goes on to it; text size, Hide the bar, Earlier and Later lesson and Copy link join the page's More menu; the lesson reader, its review bar, the app's copy of the review sync and the reader's revise-job state are removed (the page runs its own review sync, nothing in the app starts a revise job since Send to tutor went).
+Rejected: keeping two readers and only folding the lesson reader's bar into the page's bar, since the hidden split between lessons and other pages would stay.
+Status: accepted

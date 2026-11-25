@@ -3,8 +3,8 @@
      #/p/<id>           the list of one registry project
      #/unlinked         the list of pages without a project
      #/reports[?area=a]  the list of one area (first folders under a root); without an area, the whole list
-     #/l/<slug>         read one lesson: a tutor lesson, or a page with the lesson tag (slug page-<hash>)
-     #/r/<url>          read one page in the app (url: its server path, encoded); a lesson goes on to #/l/<slug>
+     #/l/<slug>         a lesson by its slug (a tutor lesson, or a page with the lesson tag: page-<hash>); goes on to #/r/<url>
+     #/r/<url>          read one page in the app, a lesson included (url: its server path, encoded)
      #/new              new lesson: topic, project, shared link inbox   (#/links: old phone tab, same page)
      #/jobs             lesson and revision jobs
      #/add?u=<url>&n=<note>   add a link (iOS Shortcut target), then #/new */
@@ -78,8 +78,8 @@ export const lessonHash = (slug: string) => `#/l/${encodeURIComponent(slug)}`
 export const projectHash = (id: string) => `#/p/${encodeURIComponent(id)}`
 export const pageHash = (url: string) => `#/r/${encodeURIComponent(url.replace(/^\//, ''))}`
 export const areaHash = (area = '') => (area ? `#/reports?area=${encodeURIComponent(area)}` : '#/')
-/** Where a page of the list opens: the lesson reader for a lesson, else the page reader. */
-export const itemHash = (i: Pick<Item, 'slug' | 'url'>) => (i.slug ? lessonHash(i.slug) : pageHash(i.url))
+/** Where a page of the list opens: the page reader, for a lesson too. */
+export const itemHash = (i: Pick<Item, 'url'>) => pageHash(i.url)
 
 /** Absolute link to a route of this app (for "Copy link"). */
 export const hereUrl = (hash: string) => location.origin + location.pathname + hash

@@ -57,7 +57,7 @@ Headings get ids from their text, tables get their frame, and code blocks get a 
 
 ## Content conventions
 
-- A page that teaches a concept, a method or how a system works carries `<meta name="agent-pages-kind" content="lesson">` right after `<meta charset="utf-8">`; the library app shows it with the tag `lesson` and opens it in the lesson reader, wherever it lives under the server's folders.
+- A page that teaches a concept, a method or how a system works carries `<meta name="agent-pages-kind" content="lesson">` right after `<meta charset="utf-8">`; the library app shows it with the tag `lesson`, wherever it lives under the server's folders, and opens it in the same page reader as any other page, with Earlier and Later lesson in its More menu.
   Without the line, or with another `content`, the page is a report; `lesson.html` carries it, `report.html` does not, and adding or removing the `lesson` tag in the app writes or removes the line.
 - Start with `p.eyebrow` (project and kind of report), the `h1` naming the subject, `p.lede` whose first sentence states the finding, and `p.meta` holding `<span>` items such as the date and the sources.
 - Use `h2` for sections and `h3` for subsections; the outline is built from them.
@@ -118,7 +118,7 @@ Choice questions also get an optional note field.
 
 ### Send to agent
 
-Send to agent shows only on a page `agent-pages serve` serves, in a tab of its own, in the app's page reader and in its lesson reader.
+Send to agent shows only on a page `agent-pages serve` serves, in a tab of its own and in the app's page reader.
 The server adds `agent-send.js` and the page's id to the page's head; a page opened as a file, or one whose `data-doc-id` another page also uses, has no Send button.
 It also needs a target: an agent session in the page's `agent-pages-session` line, or a server that can start a new agent (Paseo on its `PATH`).
 It is the first item of the top bar's More menu, and the panel has it next to Export Markdown.

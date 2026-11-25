@@ -29,7 +29,7 @@ export interface Item {
   summary: string
   sessions: string[]
   origin: 'report' | 'tutor'
-  /** a lesson's slug (read at #/l/<slug>): the tutor's folder name, or page-<hash> for a marked page; null for a report */
+  /** a lesson's slug (#/l/<slug> goes on to its page): the tutor's folder name, or page-<hash> for a marked page; null for a report */
   slug: string | null
   doc_id?: string | null
   created: string // YYYY-MM-DD: the date in the file or folder name, else the file's date
@@ -37,10 +37,6 @@ export interface Item {
   sent_at?: number
   shared?: string[] // other pages with the same data-doc-id (their status cannot be set)
 }
-
-/** An item read in the lesson reader (#/l/<slug>): a tutor lesson or a marked page. */
-export type Lesson = Item & { slug: string }
-export const isLesson = (i: Item): i is Lesson => !!i.slug
 
 export interface Project {
   id: string
@@ -86,16 +82,6 @@ export function rootUrl(path: string): string {
 
 /** Where a page is served: its own server path (a tutor lesson's is /lessons/<slug>/). */
 export const pageUrl = (i: Pick<Item, 'url'>) => rootUrl(i.url.replace(/^\//, ''))
-
-/** The key a lesson page stores its review under (report.js docIdOf): a tutor lesson's slug, else data-doc-id, else the page's path. */
-export function lessonDocKey(l: Pick<Item, 'slug' | 'origin' | 'url' | 'doc_id'>): string {
-  if (l.origin === 'tutor' && l.slug) return l.slug
-  if (l.doc_id && l.doc_id !== 'report-slug') return l.doc_id
-  return new URL(pageUrl(l)).pathname
-}
-
-/** The folder of a page's path, for the reader's bar. */
-export const folderOf = (path: string) => path.replace(/\/[^/]*$/, '') || path
 
 export class ApiError extends Error {}
 

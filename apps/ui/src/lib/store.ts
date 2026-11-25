@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { api, isActive, type InboxItem, type Item, type Job, type Project, type Status } from './api'
 import { useDraft } from './draft'
 import { setProjectOrder } from './format'
-import { lessonHash, navigate, pageHash } from './router'
+import { lessonHash, navigate } from './router'
 
 const LS_VIEW = 'ap-view'
 
@@ -158,15 +158,10 @@ export const useStore = create<State>()((set, get) => {
     },
 
     async patchItem(id, body) {
-      const old = get().pages.find((i) => i.id === id)
       try {
         const m = await api<Item>(`items/${encodeURIComponent(id)}`, { method: 'PATCH', body })
         const next = withUnknown(m)
         set({ pages: newestFirst(get().pages.map((i) => (i.url === next.url ? next : i))) })
-        if (old?.slug && !next.slug && location.hash === lessonHash(old.slug)) {
-          // the lesson tag is gone: the page reader shows it, once the open dialog has closed (PageView does the other way)
-          setTimeout(() => navigate(pageHash(next.url), { replace: true }), 250)
-        }
         return next
       } catch (e) {
         toast.error((e as Error).message)
