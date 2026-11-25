@@ -124,8 +124,6 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .bn-doc-title { font: 600 .98rem/1.6 var(--font-display); letter-spacing: -.01em; color: var(--ink); text-decoration: none;
                 overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 2rem; }
 .bn-doc-title:hover { color: var(--primary); }
-.bn-doc-sec { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.bn-doc-sec:not(:empty)::before { content: "\203A"; margin-right: .45rem; color: var(--faint); }
 .bn-btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; flex: none;
           height: 2.15rem; min-width: 2.15rem; padding: 0 .55rem; border-radius: var(--r-s);
           border: 1px solid transparent; background: none; color: var(--ink);
@@ -137,17 +135,31 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .bn-btn[aria-pressed="true"] .n { color: inherit; }
 .bn-pick[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
 .bn-toc-btn { display: none; }
-.bn-theme .moon { display: none; }
-:root[data-theme="dark"] .bn-theme .sun { display: none; }
-:root[data-theme="dark"] .bn-theme .moon { display: block; }
-.bn-export, .bn-clear { color: var(--muted); padding: 0 .4rem; }
-.bn-export:hover { color: var(--primary); }
-.bn-send { color: var(--muted); }
-.bn-send:hover { color: var(--primary); }
-.bn-send:disabled { opacity: .55; cursor: default; }
+/* More menu: actions used once per round and settings */
+.bn-more-wrap { position: relative; flex: none; display: inline-flex; }
+.bn-more { color: var(--muted); padding: 0 .4rem; }
+.bn-more[aria-expanded="true"] { background: var(--surface-2); border-color: var(--line); color: var(--ink); }
+.bn-menu { position: absolute; z-index: 60; top: calc(100% + .45rem); right: 0; min-width: 14.5rem;
+           max-width: calc(100vw - 1rem); padding: .3rem; display: flex; flex-direction: column;
+           background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: var(--shadow-lg); }
+.bn-mi { display: flex; align-items: center; gap: .6rem; width: 100%; padding: .5rem .6rem; border: 0; border-radius: var(--r-s);
+         background: none; color: var(--ink); font: 400 .86rem/1.2 var(--font); text-align: left; text-decoration: none;
+         white-space: nowrap; cursor: pointer; }
+.bn-mi svg.i { width: 16px; height: 16px; color: var(--muted); }
+.bn-mi .t { flex: 1; }
+.bn-mi kbd { font: 500 .72rem/1 var(--font-mono); color: var(--faint); }
+.bn-mi:hover, .bn-mi:focus-visible { background: var(--surface-2); color: var(--ink); outline: none; }
+.bn-mi:disabled { opacity: .55; cursor: default; }
+.bn-mi.danger:hover, .bn-mi.danger:focus-visible { background: var(--danger-bg); color: var(--danger); }
+.bn-mi.danger:hover svg.i, .bn-mi.danger:focus-visible svg.i { color: var(--danger); }
+.bn-mi svg.ck { visibility: hidden; color: var(--primary); }
+.bn-mi[aria-checked="true"] svg.ck { visibility: visible; }
+.bn-menu-sep, .bn-menu-app:not(:empty)::before { content: ""; display: block; height: 1px; margin: .3rem .2rem; background: var(--line); }
+/* The theme item shows the mode it switches to. */
+.bn-theme .sun { display: none; }
+:root[data-theme="dark"] .bn-theme .sun { display: block; }
+:root[data-theme="dark"] .bn-theme .moon { display: none; }
 .bn-send[hidden], .anno-send[hidden], .bn-send-st[hidden], .anno-send-st[hidden] { display: none; }
-.bn-clear:hover { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
-.bn-vim { font: 600 .74rem/1 var(--font-mono); letter-spacing: .02em; color: var(--muted); padding: 0 .45rem; }
 .bn-search { flex: 0 1 25rem; min-width: 9rem; height: 2.25rem; display: flex; align-items: center;
              gap: .2rem; padding: 0 .3rem 0 .6rem; border: 1px solid var(--line); border-radius: var(--r-m);
              background: var(--surface); color: var(--muted); }
@@ -613,13 +625,12 @@ body.bn-picking .bn-main { cursor: crosshair; -webkit-user-select: none; user-se
             max-height: 72vh; z-index: 50; background: var(--surface); border: 1px solid var(--line);
             border-radius: var(--r-l); box-shadow: var(--shadow-lg); padding: .9rem .75rem .9rem .9rem; display: none; }
   body.bn-toc-open .bn-toc { display: block; }
-  .bn-doc-sec { display: none; }
   .bn-fold { left: -1.5rem; width: 1.5rem; padding-right: .15rem; }
 }
 @media (max-width: 720px) {
   :root { --bar-h: 3.25rem; }
   .bn-bar-in { padding: 0 .75rem; gap: .35rem; }
-  .bn-search kbd, .bn-bar .lbl { display: none; }
+  .bn-search kbd, .bn-bar .lbl, .bn-mi kbd { display: none; }
   .bn-bar .bn-btn { padding: 0 .4rem; }
   .bn-doc { flex: 0 1 auto; max-width: 32vw; }
   .bn-doc-title { font-size: .9rem; }
@@ -643,15 +654,12 @@ body.bn-picking .bn-main { cursor: crosshair; -webkit-user-select: none; user-se
 }
 @media (max-width: 560px) {
   .bn-doc { display: none; }
-  /* Export, Send to agent and Clear all stay in the panel, which covers the screen at this width anyway. */
-  .bn-export, .bn-clear, .bn-send { display: none; }
   .bn-send-st { right: .75rem; }
   /* An export from the panel still marks the page as read. */
   .bn-chg .bn-chg-read { display: none; }
   .bn-search { min-width: 5rem; }
 }
 @media (max-width: 420px) {
-  .bn-vim { display: none; }
   .bn-search { min-width: 3.5rem; }
 }
 

@@ -181,3 +181,12 @@ Rule: the app downloads every Open page when the list loads, newest change first
 Rejected: vite-plugin-pwa (a new dependency for what a short worker does); downloading on Wi-Fi only (iOS gives a web app no way to tell Wi-Fi from cellular).
 Source: report comment export on 2026-11-21_agent-pages-next-steps.html; research .agents/research/2026-11-21-pwa-offline.md.
 Status: accepted
+
+## 2026-11-25 - The page bar keeps what is used while reading; actions clicked once per round and settings sit in a More menu
+Why: the bar had grown to sixteen controls in the app's page reader, and Sylvain found it too busy.
+Rule: the bar shows Back, the outline button, the title, search, the change marks, Pick, the comments and answers counter, the page's status and a More menu (three dots) at its right end.
+Rule: the More menu holds Send to agent, Export Markdown, Clear all, the light or dark switch and Vim keys; the app adds Download for offline and Open the page alone to it (#bn-menu-app); Cmd+Shift+X and the comment panel keep Export, Send and Clear one step away.
+Rule: the bar no longer names the current section next to the title; the outline highlights it instead.
+Rule: the tags button left the page bar, since the status button opens the same Status and tags dialog.
+Source: chat with Sylvain, 2026-11-25.
+Status: accepted

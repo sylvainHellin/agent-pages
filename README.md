@@ -109,7 +109,7 @@ tailscale serve --bg --https=8443 http://127.0.0.1:8320
 Then set `base_url = "https://<machine>.<tailnet>.ts.net:8443"` in the config; HTTPS also lets the pages' Export button write to the clipboard.
 On an iPhone, open that URL in Safari and use Share, Add to Home Screen.
 
-The app keeps itself and every page opened in it readable with no connection: a service worker (`apps/ui/public/sw.js`, served at `/sw.js`) shows the saved copy first and asks the server for a newer one in the background, and a page's Download for offline button also saves the images it references.
+The app keeps itself and every page opened in it readable with no connection: a service worker (`apps/ui/public/sw.js`, served at `/sw.js`) shows the saved copy first and asks the server for a newer one in the background, and Download for offline in a page's More menu also saves the images it references.
 It also downloads every Open page with what it references, the pages changed last first and up to 150 MB, when the list loads and again on reconnecting or returning to the app, at most every 30 minutes; the Save Open pages offline switch (sidebar, or the phone's header menu) turns that off, for instance on a cellular-heavy day.
 A page that leaves the Open list or no longer fits the 150 MB is removed again, unless it was opened or saved with Download for offline.
 Service workers need HTTPS or localhost, so offline reading works behind `tailscale serve` or on `127.0.0.1`, not on a plain `http://` tailnet address.

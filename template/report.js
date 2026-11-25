@@ -140,6 +140,9 @@
     copy: '<svg class="i" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M16 4h2a2 2 0 0 1 2 2v4"/><path d="M21 14H11"/><path d="m15 10-4 4 4 4"/></svg>',
     trash: '<svg class="i" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
     diff: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3v14"/><path d="M5 10h14"/><path d="M5 21h14"/></svg>',
+    more: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>',
+    keys: '<svg class="i" viewBox="0 0 24 24"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>',
+    check: '<svg class="i ck" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>',
     read: '<svg class="i" viewBox="0 0 24 24"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>'
   };
 
@@ -175,7 +178,7 @@
     bar.innerHTML =
       '<div class="bn-bar-in">' +
       '<button class="bn-btn bn-toc-btn" id="bn-toc-btn" type="button" aria-label="Contents" aria-expanded="false" title="Contents">' + ICON.toc + '</button>' +
-      '<div class="bn-doc"><a class="bn-doc-title" id="bn-doc-title" href="#top" title="Back to top"></a><span class="bn-doc-sec" id="bn-doc-sec"></span></div>' +
+      '<div class="bn-doc"><a class="bn-doc-title" id="bn-doc-title" href="#top" title="Back to top"></a></div>' +
       '<div class="bn-search" id="bn-search" role="search">' + ICON.search +
       '<input id="bn-q" type="search" placeholder="Search this page" autocomplete="off" spellcheck="false" aria-label="Search this page">' +
       '<kbd>/</kbd><span class="bn-q-ctl"><span class="bn-count" id="bn-count" aria-live="polite"></span>' +
@@ -191,11 +194,18 @@
       '</span>' +
       '<button class="bn-btn bn-pick" id="bn-pick" type="button" aria-pressed="false" title="Comment on an element (Cmd+Shift+E)">' + ICON.pick + '<span class="lbl">Pick</span></button>' +
       '<button class="bn-btn bn-comments" id="bn-comments" type="button" aria-pressed="false" title="Comments, notes and export (c)">' + ICON.comment + '<span class="n" id="bn-comments-n">0</span><span class="bn-qcount" id="bn-q-wrap" hidden>' + ICON.question + '<span class="n" id="bn-q-n">0/0</span></span></button>' +
-      '<button class="bn-btn bn-export" id="bn-export" type="button" aria-label="Export Markdown" title="Export comments, answers and notes as Markdown to the clipboard (Cmd+Shift+X)">' + ICON.copy + '</button>' +
-      '<button class="bn-btn bn-send" id="bn-send" type="button" hidden aria-label="Send to agent" title="Send comments, answers and notes to the agent session that wrote this page">' + ICON.send + '<span class="lbl">Send</span></button>' +
-      '<button class="bn-btn bn-clear" id="bn-clear" type="button" aria-label="Clear all" title="Clear all comments, answers and notes on this page">' + ICON.trash + '</button>' +
-      '<button class="bn-btn bn-vim" id="bn-vim" type="button" aria-pressed="false" aria-label="Vim keys" title="Vim keys in comment boxes, answers and general notes">Vim</button>' +
-      '<button class="bn-btn bn-theme" id="bn-theme" type="button" title="Toggle light or dark mode" aria-label="Toggle light or dark mode">' + ICON.sun + ICON.moon + '</button>' +
+      /* Actions used once per round and settings sit in the More menu; the app adds its own items to #bn-menu-app. */
+      '<span class="bn-more-wrap" id="bn-more-wrap">' +
+      '<button class="bn-btn bn-more" id="bn-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="bn-menu" aria-label="More" title="More: export, send, clear, light or dark, Vim keys">' + ICON.more + '</button>' +
+      '<div class="bn-menu" id="bn-menu" role="menu" aria-label="More" hidden>' +
+      '<button class="bn-mi bn-send" id="bn-send" type="button" role="menuitem" hidden title="Send comments, answers and notes to the agent session that wrote this page">' + ICON.send + '<span class="t">Send to agent</span></button>' +
+      '<button class="bn-mi" id="bn-export" type="button" role="menuitem" title="Copy comments, answers and notes as Markdown to the clipboard">' + ICON.copy + '<span class="t">Export Markdown</span><kbd>\u2318\u21e7X</kbd></button>' +
+      '<button class="bn-mi danger" id="bn-clear" type="button" role="menuitem" title="Clear all comments, answers and notes on this page">' + ICON.trash + '<span class="t">Clear all\u2026</span></button>' +
+      '<div class="bn-menu-sep" role="separator"></div>' +
+      '<button class="bn-mi bn-theme" id="bn-theme" type="button" role="menuitem">' + ICON.sun + ICON.moon + '<span class="t">Dark mode</span></button>' +
+      '<button class="bn-mi" id="bn-vim" type="button" role="menuitemcheckbox" aria-checked="false" title="Vim keys in comment boxes, answers and general notes">' + ICON.keys + '<span class="t">Vim keys</span>' + ICON.check + '</button>' +
+      '<div class="bn-menu-app" id="bn-menu-app" role="group"></div>' +
+      '</div></span>' +
       '</div>';
     var layout = ui(el('div', 'bn-layout'));
     var toc = ui(el('nav', 'bn-toc'));
@@ -689,8 +699,52 @@
       return norm(c.textContent);
     }
 
-    /* Theme */
-    $('bn-theme').addEventListener('click', function () {
+    /* More menu: opens under its button; arrows, Home and End move, Esc and Tab close, a click outside closes.
+       Items are .bn-mi buttons or links, the app's included; the menu closes before an item's own handler runs,
+       so a dialog the item opens gives the focus back to More. */
+    var more = $('bn-more'), menu = $('bn-menu'), moreWrap = $('bn-more-wrap');
+    function menuItems() {
+      return [].slice.call(menu.querySelectorAll('.bn-mi')).filter(function (b) { return !b.hidden && !b.disabled && b.getClientRects().length; });
+    }
+    function menuOpen(open, focusAt) {
+      if (open !== !menu.hidden) {
+        menu.hidden = !open;
+        more.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) showTheme();
+      }
+      var its = open && focusAt != null ? menuItems() : [];
+      if (its.length) its[focusAt < 0 ? its.length - 1 : 0].focus({ preventScroll: true });
+    }
+    more.addEventListener('click', function () { menuOpen(menu.hidden, null); });
+    more.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); menuOpen(true, e.key === 'ArrowUp' ? -1 : 0); }
+      else if (e.key === 'Escape' && !menu.hidden) { e.preventDefault(); e.stopPropagation(); menuOpen(false); }
+    });
+    menu.addEventListener('click', function (e) {
+      if (!e.target.closest('.bn-mi')) return;
+      menuOpen(false);
+      more.focus({ preventScroll: true });
+    }, true);
+    menu.addEventListener('keydown', function (e) {
+      var its = menuItems(), i = its.indexOf(document.activeElement), k = e.key;
+      if (k === 'Escape') { e.preventDefault(); e.stopPropagation(); menuOpen(false); more.focus({ preventScroll: true }); }
+      else if (k === 'Tab') menuOpen(false);
+      else if (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End') {
+        e.preventDefault(); e.stopPropagation();
+        if (!its.length) return;
+        var j = k === 'Home' ? 0 : k === 'End' ? its.length - 1 : (i + (k === 'ArrowDown' ? 1 : -1) + its.length) % its.length;
+        if (i === -1 && k === 'ArrowUp') j = its.length - 1;
+        its[j].focus({ preventScroll: true });
+      }
+    });
+    document.addEventListener('click', function (e) { if (!menu.hidden && !moreWrap.contains(e.target)) menuOpen(false); });
+
+    /* Theme: the menu item names the mode it switches to */
+    var themeBtn = $('bn-theme');
+    function showTheme() {
+      themeBtn.querySelector('.t').textContent = root.getAttribute('data-theme') === 'dark' ? 'Light mode' : 'Dark mode';
+    }
+    themeBtn.addEventListener('click', function () {
       var t = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       root.setAttribute('data-theme', t);
       root.setAttribute('data-theme-src', 'stored');
@@ -767,7 +821,7 @@
     });
 
     /* Scroll spy */
-    var secLabel = $('bn-doc-sec'), active = null, ticking = false;
+    var active = null, ticking = false;
     function barH() { var b = document.querySelector('.bn-bar'); return b ? b.offsetHeight : 56; }
     function spy() {
       ticking = false;
@@ -781,10 +835,9 @@
       if (pick === active) return;
       if (active) { active.classList.remove('active'); active._top.classList.remove('in'); }
       active = pick;
-      if (!active) { secLabel.textContent = ''; return; }
+      if (!active) return;
       active.classList.add('active');
       active._top.classList.add('in');
-      secLabel.textContent = textOf(active._top.firstChild._head);
       var tr = toc.getBoundingClientRect(), ar = active.getBoundingClientRect();
       if (ar.top < tr.top + 30 || ar.bottom > tr.bottom - 30) toc.scrollTop += (ar.top - tr.top) - tr.height / 3;
     }
@@ -1793,11 +1846,11 @@
     });
     window.addEventListener('resize', fitNotes);
 
-    /* Vim keys: one setting in localStorage, shown by the top-bar button and the panel checkbox. */
+    /* Vim keys: one setting in localStorage, shown by the More menu item and the panel checkbox. */
     var vimTop = $('bn-vim');
     function showVim() {
       vimBox.checked = vimOn;
-      vimTop.setAttribute('aria-pressed', vimOn ? 'true' : 'false');
+      vimTop.setAttribute('aria-checked', vimOn ? 'true' : 'false');
       vimTop.title = 'Vim keys in comment boxes, answers and general notes: ' + (vimOn ? 'on' : 'off');
     }
     function setVim(on) {
@@ -1812,7 +1865,7 @@
     vimTop.addEventListener('click', function () { setVim(!vimOn); });
     showVim();
 
-    /* Status line in the panel; with the panel closed (top bar buttons), the same message shows as a toast under the bar. */
+    /* Status line in the panel; with the panel closed (the More menu), the same message shows as a toast under the bar. */
     var toast = ui(el('div', 'bn-toast'));
     toast.setAttribute('role', 'status');
     toast.hidden = true;
@@ -2019,7 +2072,7 @@
       return out.join('\n').replace(/\n+$/, '\n');
     }
     function exportable() { return store.length || savedAnswers().length || notes.trim(); }
-    /* The top bar button falls back to a download when the clipboard is blocked, since Download .md sits in the closed panel. */
+    /* The More menu item and Cmd+Shift+X fall back to a download when the clipboard is blocked, since Download .md sits in the closed panel. */
     function exportMd(fromBar) {
       if (!exportable()) { say('Nothing to export yet.'); return; }
       copyText(markdown(), function (ok) {
@@ -2032,7 +2085,7 @@
     $('bn-export').addEventListener('click', function () { exportMd(true); });
 
     /* ---------- Send to agent (agent-send.js, only on a page agent-pages serves) ---------- */
-    /* The top bar button's line sits under the bar like the toast, with a close button; the panel has its own line.
+    /* The More menu item's line sits under the bar like the toast, with a close button; the panel has its own line.
        Both show the same send. A Sent line under the bar goes away after a while, the panel's stays. */
     var sender = window.AgentSend && window.AgentSend.controller ? window.AgentSend.controller({
       markdown: markdown,

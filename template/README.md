@@ -106,22 +106,22 @@ Choice questions also get an optional note field.
 1. The agent writes the page, with question cards for anything it needs decided, and hands over the path.
    A screenshot, render or figure mentioned on the page is displayed in it, with its path in the caption.
 2. The reader reads it in the browser, comments, answers the cards, and writes general notes in the comment panel.
-3. The reader presses Cmd+Shift+X, the clipboard button in the top bar or Export Markdown in the panel and pastes the result into the chat.
-   Cmd+Shift+X works from anywhere on the page, a text box included, and behaves like the top bar button.
-   When the clipboard is blocked, the top bar button downloads the file instead, and the panel offers Download .md.
-   On a page `agent-pages serve` serves, Send to agent, next to Export in the top bar and in the panel, hands the same export straight to the agent session that wrote the page (see Send to agent below), so nothing needs pasting.
+3. The reader presses Cmd+Shift+X, or chooses Export Markdown in the top bar's More menu or in the panel, and pastes the result into the chat.
+   Cmd+Shift+X works from anywhere on the page, a text box included, and behaves like the menu item.
+   When the clipboard is blocked, Cmd+Shift+X and the menu item download the file instead, and the panel offers Download .md.
+   On a page `agent-pages serve` serves, Send to agent, above Export in the More menu and next to it in the panel, hands the same export straight to the agent session that wrote the page (see Send to agent below), so nothing needs pasting.
 4. The agent revises the same file in place, removes the question cards that are answered, and hands the path back.
    When the export names sessions other than its own, the agent reads what they discussed in its harness's session history before it answers, and adds its own id with `agent-pages session <path> --add`.
 5. On the next load the page sees that its content changed and clears what the last export carried, so no manual cleanup is needed (see Review rounds below).
-   The bin button in the top bar or Clear all in the panel still wipes everything at any time, after a confirmation dialog.
+   Clear all in the More menu or in the panel still wipes everything at any time, after a confirmation dialog.
 6. The revised page marks what changed since the version the reader exported, and folds the sections already read that did not change (see Changes since the last read below).
 
 ### Send to agent
 
-The button shows only on a page `agent-pages serve` serves, in a tab of its own, in the app's page reader and in its lesson reader.
+Send to agent shows only on a page `agent-pages serve` serves, in a tab of its own, in the app's page reader and in its lesson reader.
 The server adds `agent-send.js` and the page's id to the page's head; a page opened as a file, or one whose `data-doc-id` another page also uses, has no Send button.
 It also needs a target: an agent session in the page's `agent-pages-session` line, or a server that can start a new agent (Paseo on its `PATH`).
-In the top bar it is a paper plane with the label Send, hidden below 560 px like Export; the panel has Send to agent next to Export Markdown at every width.
+It is the first item of the top bar's More menu, and the panel has it next to Export Markdown.
 
 A click posts the export Export Markdown builds to `POST /api/send` with the page's id and a send id made in the browser, and answers at once; the server's routes are in the main README, "Send to agent".
 A status line follows: under the top bar (with a close button; a Sent line there goes after eight seconds) and under the panel's buttons.
@@ -142,7 +142,7 @@ An accepted send records the export snapshot as Export does, so the revised page
 ### Review rounds
 
 At load, `report.js` hashes the source of `<main>` before decorating it; that hash is the page revision.
-A successful export (clipboard, top-bar download fallback, Download .md or an accepted Send to agent) records a snapshot of what it carried: each comment's id and text, each answer's choice, text and note, and the general notes.
+A successful export (clipboard, the download fallback of Cmd+Shift+X and the menu item, Download .md or an accepted Send to agent) records a snapshot of what it carried: each comment's id and text, each answer's choice, text and note, and the general notes.
 When the page loads with a revision different from the one of that export, it removes every comment and answer still identical to the snapshot, and the exported notes when the current notes start with them.
 Anything added or edited after the export stays, so feedback written while the agent works is never lost; nothing is cleared when there was no export, or when the content did not change.
 A toast names what was cleared ("Page revised: cleared 2 comments and 1 answer from your last export."), shown for eight seconds.
@@ -167,9 +167,10 @@ Clicking a highlight, a badge or an entry in the panel reopens it for editing or
 The panel lists, top to bottom, the general notes, the comments in document order and the answers.
 Its header counts both, as in "Comments 2 · Answers 1".
 The panel button in the top bar carries only symbols: the comment count, and on a page with question cards a second counter, answered of total ("0/2").
-Next to it, two symbol-only buttons repeat Export Markdown (clipboard) and Clear all (bin, red on hover), so a round trip needs no trip into the panel; Send sits between them on a page the server serves.
-With the panel closed, their result ("Copied to clipboard as Markdown.", "Nothing to export yet.") shows for three seconds in a small toast under the bar.
-Below 560 px all three hide, since the panel covers the screen there anyway, and below 420 px the Vim button hides too.
+The top bar keeps what is used while reading (outline, title, search, change marks, Pick, the panel button); what is clicked once per round or rarely sits in the More menu (three dots) at its right end, at every width.
+The menu holds Send to agent (on a page the server serves), Export Markdown, Clear all, the light or dark switch and Vim keys; the app adds Download for offline and Open the page alone when it shows the page.
+The arrow keys, Home and End move through it, and Esc, Tab or a click outside close it.
+With the panel closed, the result of an item ("Copied to clipboard as Markdown.", "Nothing to export yet.") shows for three seconds in a small toast under the bar.
 Cards and export headings name the section only when it is a heading other than the h1, so a comment near the page title carries no section label.
 The Answers section has one card per question that carries a choice, a text or a note: the question number, its section, the question text, the chosen options and the note.
 A card with a note but no choice is marked "no choice yet".
@@ -212,7 +213,7 @@ The hint line under the Vim keys checkbox in the panel repeats the main keys, an
 A small Vim mode works in the comment box, the general notes and the answer boxes of question cards (free text and the optional note).
 It is on by default with a mouse or trackpad and off by default on a touch screen (`pointer: coarse`).
 With `vim_default = false` in the config, `agent-pages new` and `agent-pages lesson new` write `data-vim-default="off"` on the `<html>` element, which turns the default off on every device.
-The Vim button in the top bar, next to the light and dark toggle, and the Vim keys checkbox in the panel switch it; both show the same setting, which the browser remembers for every page and which wins over the default.
+The Vim keys item of the More menu, ticked while on, and the Vim keys checkbox in the panel switch it; both show the same setting, which the browser remembers for every page and which wins over the default.
 A comment box opens in insert mode, Esc switches to normal mode, and a tag on the line below the text box shows the mode.
 A box that regains focus always starts in insert mode, so letters typed into a box left in normal mode never run as commands (IME input such as Hangul bypasses the key handler and would otherwise mix with them).
 Normal mode knows `h j k l`, `w b e`, `0 ^ $`, `gg G`, `i a I A o O`, `x`, `dd dw cw D C`, `u` (one level) and `p` (the last deletion).
@@ -222,7 +223,7 @@ Esc in normal mode closes the comment box only when its text is unchanged; other
 
 ## Reading it
 
-- The page follows the system light or dark setting; the sun and moon button switches mode and remembers the choice.
+- The page follows the system light or dark setting; Dark mode or Light mode in the More menu switches it and remembers the choice.
   `?theme=dark` or `?theme=light` in the URL forces a mode without storing it, which is how the screenshots are taken.
 - `/` focuses the search; Enter and Shift+Enter step through the matches, and Esc clears them.
   Matching ignores case and accents and spans inline formatting.
