@@ -129,7 +129,7 @@ The server keeps one stream per session, sends a heartbeat every 20 s, drops a s
 A pi loads extensions when it starts, so each running pi needs `/reload` or a restart once after the extension is installed.
 
 `POST /api/send` with `{"page": <page id>, "id": <send id from the page>, "markdown": <the export>}` stores the send and answers at once with its route.
-The page's Send to agent button (`template/agent-send.js`, next to Export) posts the export its Export button builds (`bn.review.markdown()`), up to 600 kB, since the server cannot rebuild it: it depends on how each comment anchors in the reader's browser.
+The page's Send to agent button (`template/agent-send.js`, in the More menu next to Export) posts the export Export builds (`bn.review.markdown()`), up to 600 kB, since the server cannot rebuild it: it depends on how each comment anchors in the reader's browser.
 The server adds that script and the page's id to every page it serves with the review layer, unless the page's `data-doc-id` is shared; how the button shows each route is in `template/README.md`, "Send to agent".
 
 - `live`: a pi holds one of the sessions; it gets the send, fetches the export, claims it and queues it as a follow-up; the claim names the pi's pid and host, so a retry whose first answer was lost is answered again for that same pi only.
