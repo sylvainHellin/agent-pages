@@ -196,3 +196,12 @@ Why: the one list (2026-11-22) made lesson a tag, but a lesson still opened in i
 Decision: `#/r/<url>` reads every page, tutor lessons included; `#/l/<slug>` only goes on to it; text size, Hide the bar, Earlier and Later lesson and Copy link join the page's More menu; the lesson reader, its review bar, the app's copy of the review sync and the reader's revise-job state are removed (the page runs its own review sync, nothing in the app starts a revise job since Send to tutor went).
 Rejected: keeping two readers and only folding the lesson reader's bar into the page's bar, since the hidden split between lessons and other pages would stay.
 Status: accepted
+
+## 2026-11-26 - The list header is two lines: search with the view controls, then status tabs with a Tags menu
+Why: Sylvain found the top of the list ugly: a search field squeezed to a third of the line, pill chips for the status and two wrapping rows of tag chips (seven rows of chips on a phone), and a "168 pages, 42 changed this week" line floating in the middle.
+Rule: the first line is the search field, as wide as the line allows, then Select and List / Month.
+Rule: the status is a row of underlined tabs with their counts; the tags sit behind one Tags button at the end of that row, a searchable menu with counts, and the picked tags show under the tabs only while some are picked.
+Rule: the list header shows no stats line, since All carries the total and the day headings show what changed lately; the board footer keeps its month counts.
+Rejected: keeping the 12 most used tags as chips with "+N more" (they wrap into rows that push the list down, and most tags label one page).
+Source: chat with Sylvain, 2026-11-26.
+Status: accepted

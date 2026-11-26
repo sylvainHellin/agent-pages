@@ -1,12 +1,14 @@
 /* The one list: #/ (every page), #/p/<id> (one project), #/unlinked (no project), #/reports?area=a (one area).
-   Every page has one status (open, sent, done, archived) and tags; the status chips (Open by default, Sent, Done,
-   Archived, All) and the tag chips filter the list, the search matches title, topic, summary, path, projects and tags.
+   Every page has one status (open, sent, done, archived) and tags; the status tabs (Open by default, Sent, Done,
+   Archived, All) and the Tags menu filter the list, the search matches title, topic, summary, path, projects and tags.
+   The header is two lines: search, Select and List / Month; then the status tabs and the Tags menu, with the picked
+   tags on a line of their own under them only while some are picked.
    The list is newest change first under day and month headings; Month shows the same pages on the month board
    (components/board.tsx), whose month is kept per list in the store, so it survives opening a page and coming back.
    Select puts a checkbox on every row and a bar under the list: Select all shown, then Open, Done or Archived for the
    selection in one PATCH api/items (pages whose data-doc-id is shared cannot be picked: their status cannot be set). */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowUpRightIcon, CalendarDaysIcon, CopyIcon, ListChecksIcon, ListIcon, XIcon } from 'lucide-react'
+import { ArrowUpRightIcon, CalendarDaysIcon, CheckIcon, CopyIcon, ListChecksIcon, ListIcon, TagIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { SETTABLE, STATUSES, registryUrl, type Item, type Status } from '@/lib/api'
 import { areaBelow, inArea } from '@/lib/areas'
@@ -14,9 +16,12 @@ import { addMonths, MONTHS, plural, WDAYS } from '@/lib/format'
 import { copyText, useIsDesktop } from '@/lib/hooks'
 import { hereUrl, itemHash, projectHash } from '@/lib/router'
 import { filterItems, matchesSearch, useStore, type StatusFilter } from '@/lib/store'
+import { rankTags } from '@/lib/tags'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Empty, ProjectDot, STATUS_LABEL, StatusMark } from '@/components/bits'
 import { defaultMonth, itemColor, Legend, MonthGrid, MonthNav, MonthSummary, MonthTitle, PhoneMonth, SearchField } from '@/components/board'
@@ -35,7 +40,6 @@ export function inScope(i: Item, s: ListScope): boolean {
 }
 
 const DAY = 86400
-const TAG_CHIPS = 12
 
 function LoadError() {
   const err = useStore((s) => s.loadError)
@@ -120,59 +124,108 @@ function ScopeHeader({ scope, count }: { scope: ListScope; count: number }) {
   )
 }
 
-const chip =
-  'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/30'
-const chipOn = 'border-foreground/25 bg-foreground/[0.07] text-foreground'
-const chipOff = 'border-border text-muted-foreground hover:border-input hover:text-foreground'
-
-/** Open, Sent, Done, Archived, All, each with its count in the list as filtered by tags and search. */
-function StatusChips({ items }: { items: Item[] }) {
+/** Open, Sent, Done, Archived, All as tabs, each with its count in the list as filtered by tags and search. */
+function StatusTabs({ items }: { items: Item[] }) {
   const status = useStore((s) => s.status)
   const setStatus = useStore((s) => s.setStatus)
   const n = (s: StatusFilter) => (s === 'all' ? items.length : items.filter((i) => i.status === s).length)
   return (
-    <div role="radiogroup" aria-label="Status" className="flex flex-wrap items-center gap-1.5">
-      {([...STATUSES, 'all'] as StatusFilter[]).map((s) => (
-        <button key={s} type="button" role="radio" aria-checked={status === s} onClick={() => setStatus(s)} className={cn(chip, status === s ? chipOn : chipOff)}>
-          {s === 'all' ? null : <StatusMark status={s} />}
-          {s === 'all' ? 'All' : STATUS_LABEL[s]}
-          <span className="text-[11.5px] font-normal text-faint tabular-nums">{n(s)}</span>
-        </button>
-      ))}
+    <div role="radiogroup" aria-label="Status" className="-mb-px flex min-w-0 flex-1 items-stretch gap-3.5 overflow-x-auto [scrollbar-width:none] desk:gap-5 [&::-webkit-scrollbar]:hidden">
+      {([...STATUSES, 'all'] as StatusFilter[]).map((s) => {
+        const on = status === s
+        return (
+          <button
+            key={s}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => setStatus(s)}
+            className={cn(
+              'inline-flex h-9 shrink-0 items-center gap-1.5 border-b-2 text-[13px] font-medium whitespace-nowrap transition-colors duration-150 outline-none focus-visible:text-foreground',
+              on ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {s === 'all' ? 'All' : STATUS_LABEL[s]}
+            <span className={cn('text-[12px] font-normal tabular-nums', on ? 'text-muted-foreground' : 'text-faint')}>{n(s)}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }
 
-/** The most used tags of the pages in view, and the picked ones; every picked tag must be on a page. */
-function TagChips({ items }: { items: Item[] }) {
+/** The Tags menu: every tag of the pages in view with its count, the picked ones first; a page must carry every picked tag. */
+function TagMenu({ items }: { items: Item[] }) {
   const tags = useStore((s) => s.tags)
   const toggle = useStore((s) => s.toggleTag)
   const clear = useStore((s) => s.clearTags)
-  const [all, setAll] = useState(false)
-  const counts = new Map<string, number>()
-  for (const i of items) for (const t of i.tags) counts.set(t, (counts.get(t) || 0) + 1)
-  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t)
-  const shown = [...tags, ...ranked.filter((t) => !tags.includes(t)).slice(0, all ? undefined : TAG_CHIPS)]
-  if (!shown.length) return null
+  const ranked = rankTags(items, tags)
+  if (!ranked.length) return null
   return (
-    <div aria-label="Tags" className="flex flex-wrap items-center gap-1.5">
-      {shown.map((t) => {
-        const on = tags.includes(t)
-        return (
-          <button key={t} type="button" aria-pressed={on} onClick={() => toggle(t)} className={cn(chip, 'h-6 px-2 text-xs', on ? chipOn : chipOff)}>
-            #{t}
-            {on ? <XIcon className="size-3" /> : <span className="text-[11px] font-normal text-faint tabular-nums">{counts.get(t) || 0}</span>}
-          </button>
-        )
-      })}
-      {ranked.length > TAG_CHIPS && !all ? (
-        <button type="button" onClick={() => setAll(true)} className="px-1 text-xs text-muted-foreground hover:text-foreground">
-          +{ranked.length - TAG_CHIPS} more
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 self-center px-2 text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground" aria-label="Filter by tags">
+          <TagIcon />
+          <span className="max-desk:sr-only">Tags</span>
+          {tags.length ? <span className="grid h-4 min-w-4 place-items-center rounded-full bg-foreground px-1 text-[10.5px] font-semibold text-background tabular-nums">{tags.length}</span> : null}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} className="w-64 gap-0 p-0">
+        <Command loop>
+          <CommandInput placeholder="Find a tag…" />
+          <CommandList className="max-h-[min(50dvh,20rem)]">
+            <CommandEmpty>No tag matches.</CommandEmpty>
+            <CommandGroup>
+              {ranked.map(({ tag, count }) => {
+                const on = tags.includes(tag)
+                return (
+                  <CommandItem key={tag} value={tag} onSelect={() => toggle(tag)} className="gap-2.5 rounded-[5px] px-2 py-1.5">
+                    <span className={cn('grid size-4 shrink-0 place-items-center rounded-[4px] border transition-colors', on ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-card')}>
+                      {on ? <CheckIcon className="size-3" /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px]">#{tag}</span>
+                    <span className="shrink-0 text-[11.5px] text-faint tabular-nums">{count}</span>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        {tags.length ? (
+          <div className="border-t p-1">
+            <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={clear}>
+              <XIcon /> Clear tags
+            </Button>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/** The picked tags under the tabs, each removable, while some are picked. */
+function PickedTags() {
+  const tags = useStore((s) => s.tags)
+  const toggle = useStore((s) => s.toggleTag)
+  const clear = useStore((s) => s.clearTags)
+  if (!tags.length) return null
+  return (
+    <div aria-label="Picked tags" className="flex flex-wrap items-center gap-1.5 pt-2.5">
+      {tags.map((t) => (
+        <button
+          key={t}
+          type="button"
+          onClick={() => toggle(t)}
+          aria-label={`Remove tag ${t}`}
+          className="inline-flex h-6 items-center gap-1 rounded-full bg-foreground/[0.07] pr-1.5 pl-2.5 text-xs font-medium text-foreground transition-colors duration-150 hover:bg-foreground/[0.11]"
+        >
+          #{t}
+          <XIcon className="size-3 text-muted-foreground" />
         </button>
-      ) : null}
-      {tags.length ? (
-        <button type="button" onClick={clear} className="px-1 text-xs text-muted-foreground underline decoration-border underline-offset-[3px] hover:text-foreground">
-          Clear tags
+      ))}
+      {tags.length > 1 ? (
+        <button type="button" onClick={clear} className="px-1 text-xs text-muted-foreground hover:text-foreground">
+          Clear
         </button>
       ) : null}
     </div>
@@ -434,7 +487,6 @@ export function ListView({ scope }: { scope: ListScope }) {
   const searched = useMemo(() => base.filter((i) => matchesSearch(i, q)), [base, q])
   const tagged = filterItems(searched, 'all', tags)
   const shown = filterItems(tagged, status, [])
-  const week = base.filter((i) => Date.now() / 1000 - i.changed < 7 * DAY).length
   const month = mode === 'month'
   const [selecting, setSelecting] = useState(false)
   const [sel, setSel] = useState<string[]>([])
@@ -484,13 +536,10 @@ export function ListView({ scope }: { scope: ListScope }) {
   return (
     <div className={cn('mx-auto flex w-full flex-col px-4 pt-3 pb-12 desk:px-6', month && desk ? 'h-dvh min-h-[38rem] max-w-none pb-3' : 'max-w-3xl desk:pt-6', picking && 'pb-36 desk:pb-24')}>
       <ScopeHeader scope={scope} count={base.length} />
-      <div className="flex shrink-0 flex-col gap-2.5 pt-2 pb-1">
+      <div className="flex shrink-0 flex-col pt-2 pb-1">
         <div className="flex items-center gap-2">
-          <SearchField className="min-w-0 flex-1 desk:max-w-sm" compact={!desk} />
-          <span className="flex-1 max-desk:hidden" />
-          <span className="text-xs text-faint tabular-nums max-desk:hidden">
-            {plural(base.length, 'page')}, {week} changed this week
-          </span>
+          <SearchField className={cn('min-w-0 flex-1', month && 'desk:max-w-md')} compact={!desk} />
+          {month ? <span className="flex-1 max-desk:hidden" /> : null}
           {month ? null : (
             <Button
               variant={picking ? 'secondary' : 'ghost'}
@@ -506,8 +555,11 @@ export function ListView({ scope }: { scope: ListScope }) {
           )}
           <ModeToggle />
         </div>
-        <StatusChips items={tagged} />
-        <TagChips items={filterItems(searched, status, [])} />
+        <div className="mt-2 flex items-stretch gap-2 border-b">
+          <StatusTabs items={tagged} />
+          <TagMenu items={filterItems(searched, status, [])} />
+        </div>
+        <PickedTags />
       </div>
       {body}
       {picking && loaded && pages.length ? <SelectBar items={shown} sel={sel} setSel={setSel} onClose={stopPicking} /> : null}
