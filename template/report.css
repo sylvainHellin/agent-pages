@@ -270,6 +270,10 @@ del.bn-del .bn-del-t { color: var(--danger); background: var(--danger-bg); borde
 body.bn-diff-off del.bn-del, body.bn-diff-off .bn-chgbars, body.bn-diff-off .bn-toc a .c { display: none; }
 body.bn-diff-off mark.bn-ins { background: none; box-shadow: none; }
 body.bn-diff-off .bn-chg-new:not(tr), body.bn-diff-off .bn-chg-new > td, body.bn-diff-off .bn-chg-new > th { background-color: transparent; box-shadow: none; }
+/* a sticky header cell stays opaque, so the rows scrolling under it never show through: the new-row tint
+   is layered over its own background instead of replacing it */
+thead .bn-chg-new > th { background-color: var(--surface-2); background-image: linear-gradient(var(--ok-bg), var(--ok-bg)); }
+body.bn-diff-off thead .bn-chg-new > th { background-color: var(--surface-2); background-image: none; }
 p, ul, ol, dl, blockquote, pre, table, figure, details { margin: 0 0 1rem; }
 ul, ol { padding-left: 1.35rem; }
 li { margin: .3rem 0; }
