@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import hashlib
 import io
 import json
@@ -21,7 +22,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import quote
 
-from agent_pages import cli, config
+from agent_pages import cli, config, lessons
 from agent_pages.server import app, jobs, library, reports
 
 SLUG = "2026-01-02_test-lesson"
@@ -502,6 +503,49 @@ class ServerRoutes(unittest.TestCase):
 
     def stored(self) -> dict:
         return json.loads((self.cfg.lessons_dir / "_data" / "items.json").read_text())
+
+    def vault(self, notes: dict[str, str]) -> Path:
+        """A vault with these 01-projects notes (name -> frontmatter), configured for the library."""
+        vault = self.home / "vault"
+        (vault / "01-projects").mkdir(parents=True)
+        for name, fm in notes.items():
+            (vault / "01-projects" / f"{name}.md").write_text(f"---\n{fm}\n---\nA project.\n")
+        library.configure(self.cfg.lessons_dir, vault)
+        return vault
+
+    def test_items_link_to_the_project_whose_folders_hold_them(self):
+        # a repo whose .sync is a symlink into the synced code root, as on the real machines
+        repo = self.home / "repos" / "proj"
+        repo.mkdir(parents=True)
+        (repo / ".sync").symlink_to(self.home / "code-sync" / "org" / "repo" / "sync")
+        vault = self.vault({
+            "Proj": "status: active\nrepo: ~/repos/proj",
+            "Wide": "status: active\npages:\n  - ~/docs/area",
+            "Reports": "status: active\npages: ~/docs/area/reports",
+            "Old": "status: done\npages: ~/docs",
+        })
+        # `agent-pages lesson new` guesses the project from the cwd by the same folders
+        cfg = dataclasses.replace(self.cfg, vault=vault)
+        self.assertEqual(lessons.guess_project(cfg, self.home / "docs" / "area" / "reports"), "Reports")
+        self.assertEqual(lessons.guess_project(cfg, self.home / "code-sync" / "org" / "repo" / "sync"), "Proj")
+        self.assertIsNone(lessons.guess_project(cfg, self.home / "docs"))
+        items = self.items()
+        self.assertEqual(items["/code/org/repo/sync/plan.html"]["projects"], ["Proj"])  # through the repo's .sync
+        self.assertEqual(items["/documents/area/plain.html"]["projects"], ["Wide"])
+        self.assertEqual(items["/documents/area/reports/page.html"]["projects"], ["Reports"])  # the deepest folder
+        self.assertEqual(items[f"/lessons/{SLUG}/"]["projects"], [])  # no open note holds docs/lessons
+        projects = {p["id"]: p for p in json.loads(self.get("/api/projects")[1])["projects"]}
+        self.assertEqual(projects["Proj"]["folders"], ["~/repos/proj"])
+        self.assertEqual(projects["Reports"]["folders"], ["~/docs/area/reports"])
+        # links set by hand win over the folder: unlinking keeps the page out, linking adds to it
+        plan = items["/code/org/repo/sync/plan.html"]
+        self.assertEqual(self.patch(plan["id"], {"projects": []})[0], 200)
+        self.assertEqual(self.items()["/code/org/repo/sync/plan.html"]["projects"], [])
+        plain = items["/documents/area/plain.html"]
+        self.assertEqual(self.patch(plain["id"], {"projects": ["Wide", "Proj"]})[0], 200)
+        self.assertEqual(self.items()["/documents/area/plain.html"]["projects"], ["Wide", "Proj"])
+        self.assertEqual(json.loads(self.get("/api/items?project=Reports")[1])["items"][0]["url"],
+                         "/documents/area/reports/page.html")
 
     def test_items_list_reports_and_tutor_lessons(self):
         items = self.items()

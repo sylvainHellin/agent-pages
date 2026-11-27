@@ -6,6 +6,10 @@ Paths come from the config through configure():
   DATA     server state: review sync, inbox, jobs, items.json (<lessons>/_data)
   VAULT    the vault whose 01-projects/ and 02-areas/ notes are the projects (vault; None: no projects)
 
+A project's folders are its note's `repo:` and the folders listed under `pages:` (one path or a list). A page
+under one of them, or under a folder a symlink directly inside one points to (a repo's .sync and .agents), belongs to
+that project, the deepest folder winning, until its own `projects` are set by hand.
+
 Where the pages come from:
   report pages  .html pages under the roots (reports.Index, handed over by attach_pages()); a page whose head carries
                 the lesson marker has the tag "lesson", read from and written to the file, and is also an in-place
@@ -81,7 +85,7 @@ def configure(lessons_dir: Path, vault: Path | None) -> None:
     PAGES_META = DATA / "pages.json"
     ITEMS = DATA / "items.json"
     VAULT = Path(vault) if vault else None
-    _reg_cache.update(key=None, projects=[])
+    _reg_cache.update(key=None, projects=[], real=[])
 
 
 def attach_pages(index) -> None:
@@ -96,7 +100,7 @@ def _clip(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + " …"
 
 
-_reg_cache: dict = {"key": None, "projects": []}
+_reg_cache: dict = {"key": None, "projects": [], "real": []}
 _FRONT = re.compile(r"\A---\n(.*?)\n---\n?(.*)\Z", re.S)
 _WIKI = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
 
@@ -121,13 +125,37 @@ def _first_line(body: str) -> str:
     return ""
 
 
+def _folders(fm: dict) -> list[str]:
+    """The note's folders as written: `repo:`, then each path under `pages:`."""
+    pages = fm.get("pages")
+    out: list[str] = []
+    for v in [fm.get("repo"), *(pages if isinstance(pages, list) else [pages])]:
+        v = v.strip() if isinstance(v, str) else ""
+        if v and v not in out:
+            out.append(v)
+    return out
+
+
+def _real_folders(folders: list[str]) -> list[Path]:
+    """Each folder as it resolves, and where every symlink directly inside it points to."""
+    out: list[Path] = []
+    for f in folders:
+        p = Path(f).expanduser()
+        out.append(p.resolve())
+        try:
+            out += [c.resolve() for c in p.iterdir() if c.is_symlink() and c.is_dir()]
+        except OSError:
+            pass
+    return out
+
+
 def registry_projects() -> list[dict]:
     """Open projects and areas from the vault (02-areas, then 01-projects), re-read when a note changes.
     The id is the note name, so a lesson links to [[<id>]] in Obsidian terms."""
     files = _note_files()
     key = tuple((p.name, p.stat().st_mtime) for p in files)
     if _reg_cache["key"] != key:
-        out = []
+        out, real = [], []
         for f in files:
             m = _FRONT.match(f.read_text(errors="replace"))
             try:
@@ -139,16 +167,31 @@ def registry_projects() -> list[dict]:
             status = str(fm.get("status") or "").strip() or None
             if status and status.lower() in CLOSED:
                 continue
+            folders = _folders(fm)
+            real.append((f.stem, _real_folders(folders)))
             out.append({
                 "id": f.stem,
                 "status": status,
                 "type": fm.get("type") or ("area" if f.parent.name == "02-areas" else "project"),
                 "path": str(fm.get("repo") or "") or None,
+                "folders": folders,
                 "note": str(f.relative_to(VAULT)),
                 "notes": _clip(_first_line(m.group(2) if m else f.read_text(errors="replace")), 280),
             })
-        _reg_cache.update(key=key, projects=out)
+        _reg_cache.update(key=key, projects=out, real=real)
     return _reg_cache["projects"]
+
+
+def folder_project(path: Path) -> str | None:
+    """The open project whose folders hold `path` (the deepest folder wins; on a tie, the first note)."""
+    registry_projects()
+    real = Path(path).resolve()
+    best, depth = None, -1
+    for pid, folders in _reg_cache["real"]:
+        for f in folders:
+            if (f == real or f in real.parents) and len(f.parts) > depth:
+                best, depth = pid, len(f.parts)
+    return best
 
 
 def project_ids() -> set[str]:
@@ -410,11 +453,15 @@ def _display(path: Path) -> str:
         return path.as_posix()
 
 
-def _item(base: dict, entry: dict, lesson: bool, known: set[str]) -> dict:
-    """One row of the list: the page's own fields under its entry (its items.json entry, _tutor_entry). A sent page whose
-    file is newer than its sent_at is listed as open."""
+def _item(base: dict, entry: dict, lesson: bool, known: set[str], folder: str | None = None) -> dict:
+    """One row of the list: the page's own fields under its entry (its items.json entry, _tutor_entry). Its projects are
+    the entry's when set, else the project whose folders hold the page. A sent page whose file is newer than its
+    sent_at is listed as open."""
     tags = [t for t in norm_tags(entry.get("tags") or []) if t != LESSON_TAG] + ([LESSON_TAG] if lesson else [])
-    projects = [str(p) for p in entry.get("projects") or []]
+    if "projects" in entry:
+        projects = [str(p) for p in entry.get("projects") or []]
+    else:
+        projects = [folder] if folder else []
     item = {
         **base,
         "id": reports.review_id(base["key"]),
@@ -468,7 +515,7 @@ def _page_bases() -> list[dict]:
                     shared=[u for u in _pages.urls_of(e["key"]) if u != e["url"]])
         if e["slug"]:
             base["counts"] = _count(Path(e["file"]))
-        out.append(base)
+        out.append((base, folder_project(Path(e["file"]))))
     return out
 
 
@@ -477,7 +524,7 @@ def list_items() -> list[dict]:
     known = project_ids()
     with _lock:
         items = _items()
-        out = [_item(b, items.get(b["key"]) or {}, b["slug"] is not None, known) for b in _page_bases()]
+        out = [_item(b, items.get(b["key"]) or {}, b["slug"] is not None, known, folder) for b, folder in _page_bases()]
         for base, meta in _tutor_bases():
             entry = _tutor_entry(base["slug"], items, meta, _lesson_mtime(base["slug"]))
             out.append(_item(base, entry, True, known))

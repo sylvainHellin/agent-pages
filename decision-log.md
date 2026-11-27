@@ -205,3 +205,11 @@ Rule: the list header shows no stats line, since All carries the total and the d
 Rejected: keeping the 12 most used tags as chips with "+N more" (they wrap into rows that push the list down, and most tags label one page).
 Source: chat with Sylvain, 2026-11-26.
 Status: accepted
+
+## 2026-11-26 - A page belongs to the project whose folders hold it, the folders named in the vault note
+Why: a project's page listed only the pages linked by hand, so the 27 pages in the OCDI repo's .sync showed under the tum/ocdi folder and one lesson under the project.
+Rule: a project's folders are its note's `repo:` and the paths under `pages:`; a page under one of them, or under a folder a symlink directly inside one points to (a repo's .sync and .agents), belongs to that project, the deepest folder winning.
+Rule: projects set by hand in the app (an entry with `projects` in items.json) replace the folder's, so unlinking a page keeps it out; `agent-pages lesson new` guesses by the same folders.
+Rejected: a `[projects]` table in config.toml (a project described in two places, against the vault as the source of truth for projects).
+Source: chat with Sylvain, 2026-11-26.
+Status: accepted

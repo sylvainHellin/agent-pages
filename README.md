@@ -87,7 +87,9 @@ The browser tests (`tests/test_browser.py`) open pages in headless Chromium thro
   A `lesson.json` the tutor rewrites after a change in the app wins for each field whose value it changed.
   A field the tutor changes and later changes back to its value at that change in the app, with no app change between, shows the app's older value again, since it looks like a rewrite that left the field alone.
 - Comments, answers and notes of every page the server serves: `<lessons_dir>/_data/review/` (lessons by slug, report pages under `pages/` by their `data-doc-id`); a page opened as a file keeps them in that browser only.
-- Projects: the open notes in `<vault>/02-areas/` and `<vault>/01-projects/`; the id is the note name, and a lesson created inside the repo a note names in `repo:` is linked to it.
+- Projects: the open notes in `<vault>/02-areas/` and `<vault>/01-projects/`; the id is the note name.
+  A note's folders are its `repo:` and the paths under `pages:` (one path or a list); a page under one of them, or under a folder a symlink directly inside one points to (a repo's `.sync` and `.agents`), belongs to that project, the deepest folder winning, and `agent-pages lesson new` run inside one links the lesson to it.
+  Links set in the app replace the folder's: unlinking a page keeps it out of the project.
 
 ## Serve
 

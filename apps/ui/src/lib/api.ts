@@ -43,6 +43,7 @@ export interface Project {
   status?: string | null
   type?: string | null
   path?: string | null
+  folders?: string[] // repo: and pages: of the note; a page under one of them belongs to the project
   notes?: string
 }
 

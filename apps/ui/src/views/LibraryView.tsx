@@ -102,7 +102,7 @@ function ProjectHeader({ id, count }: { id: string; count: number }) {
         </p>
       ) : null}
       {topics.length ? <p className="truncate text-xs text-faint">Topics: {topics.join(' · ')}</p> : null}
-      {!count && loaded ? <p className="text-[12.5px] text-muted-foreground">Link a page with “Link to projects” in its bar{pr?.path ? <>, or start a lesson inside <code className="font-mono text-[11.5px]">{pr.path}</code></> : null}.</p> : null}
+      {!count && loaded ? <p className="text-[12.5px] text-muted-foreground">Link a page with “Link to projects” in its bar{pr?.folders?.length ? <>, or save it under <code className="font-mono text-[11.5px]">{pr.folders.join(', ')}</code></> : <>, or list its folders under <code className="font-mono text-[11.5px]">pages:</code> in the project note</>}.</p> : null}
     </section>
   )
 }

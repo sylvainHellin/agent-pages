@@ -2,8 +2,8 @@
 
 The folder is <lessons_dir>/YYYY-MM-DD_<slug>/ with index.html (template/lesson.html, placeholders
 filled), lesson.json (metadata the library reads) and figures/. Without --project the project is
-guessed from the working directory when it lies inside the repo a vault note names in its `repo:`
-field; --no-project turns the guess off. Project ids are the names of open vault project and area notes.
+guessed from the working directory when it lies inside a folder a vault note names in its `repo:` or
+`pages:` field (library.folder_project); --no-project turns the guess off. Project ids are the names of open vault project and area notes.
 Lesson pages link the template through <lessons_dir>/_assets, a symlink to the repo's template/
 that this command creates when it is missing; the server serves the same files at /lessons/_assets/.
 """
@@ -39,17 +39,10 @@ def projects(cfg: Config) -> list[dict]:
 
 
 def guess_project(cfg: Config, cwd: Path) -> str | None:
-    """The vault note whose `repo:` contains the cwd (the deepest repo wins)."""
-    cwd = cwd.resolve()
-    best, depth = None, -1
-    for p in projects(cfg):
-        if not p.get("path"):
-            continue
-        repo = Path(p["path"]).expanduser().resolve()
-        if cwd == repo or repo in cwd.parents:
-            if len(repo.parts) > depth:
-                best, depth = p["id"], len(repo.parts)
-    return best
+    """The open vault note whose folders hold the cwd (the deepest folder wins)."""
+    if not cfg.vault:
+        return None
+    return _library(cfg).folder_project(cwd)
 
 
 def ensure_assets_link(lessons_dir: Path) -> None:
