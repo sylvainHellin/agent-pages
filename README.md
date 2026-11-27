@@ -74,6 +74,7 @@ A parent that wants a page credited to itself passes its id explicitly: `AGENT_P
 `open` and `url` warn when a page links `report.css` but not `report.js`, since such a page renders without its bar (search, comments, Export, Send to agent).
 
 Tests: `uv run python -m unittest discover -s tests` and `node --test tests/*.test.mjs`.
+The browser tests (`tests/test_browser.py`) open pages in headless Chromium through Playwright; run `uv run playwright install chromium-headless-shell` once per machine, else they skip.
 
 ## Where things live
 
