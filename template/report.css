@@ -184,6 +184,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 /* ============ Layout and outline ============ */
 .bn-layout { max-width: 84rem; margin: 0 auto; padding: 2.75rem 1.5rem 7rem;
              display: grid; grid-template-columns: 14.5rem minmax(0, 1fr); gap: 3.5rem; align-items: start; }
+/* a page without sections hides the outline, so the text column is the only one */
+.bn-layout:has(> .bn-toc[hidden]) { grid-template-columns: minmax(0, 56rem); justify-content: center; }
 .bn-main { min-width: 0; max-width: 56rem; counter-reset: fig q; }
 /* Before report.js has run, the bare <main> already sits in a readable column. */
 body > main { display: block; max-width: 56rem; margin: 0 auto; padding: 2.75rem 1.5rem 7rem; counter-reset: fig q; }
