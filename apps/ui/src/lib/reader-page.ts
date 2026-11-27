@@ -207,6 +207,8 @@ function wire(d: Document, w: Window, hooks: PageHooks) {
   const mid = (t: TouchList) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 })
 
   const begin = (x: number, y: number, d0: number, gesture: boolean) => {
+    const lb = d.getElementById('bn-lightbox')
+    if (lb && !lb.hidden) return // a pinch in the figure lightbox zooms the figure (report.js)
     if (pinch) {
       pinch.gesture ||= gesture
       return

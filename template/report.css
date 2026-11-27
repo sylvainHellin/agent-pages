@@ -418,15 +418,25 @@ figcaption { font-size: .84rem; color: var(--muted); margin-top: .55rem; line-he
 figure.fig { counter-increment: fig; }
 figure.fig figcaption::before { content: "Figure " counter(fig) ". "; font-weight: 600; color: var(--ink); }
 .bn-lightbox { position: fixed; inset: 0; z-index: 90; background: var(--backdrop); display: flex; flex-direction: column;
-               align-items: center; justify-content: center; padding: 3rem 2rem 2rem; cursor: zoom-out; }
+               align-items: center; justify-content: center; padding: 3rem 2rem 2rem; cursor: zoom-out;
+               overflow: hidden; touch-action: none; overscroll-behavior: contain; -webkit-user-select: none; user-select: none; }
+/* report.js zooms and pans the figure with a transform from its top left corner */
+.bn-lightbox .lb-media { transform-origin: 0 0; cursor: zoom-in; -webkit-user-drag: none; }
+.bn-lightbox .lb-media.lb-anim { transition: transform .18s ease; }
+.bn-lightbox.is-zoomed .lb-media { cursor: grab; }
+.bn-lightbox.is-dragging, .bn-lightbox.is-dragging .lb-media { cursor: grabbing; }
+.bn-lightbox .lb-tools { position: absolute; top: .9rem; right: .9rem; z-index: 1; display: flex; gap: .15rem; padding: .2rem;
+                         border-radius: var(--r-m); background: rgba(0, 0, 0, .45); }
+.bn-lightbox .lb-tools .bn-btn { color: #E9E5D9; font-size: 1.05rem; }
+.bn-lightbox .lb-tools .lb-pct { font-size: .8rem; min-width: 3.4rem; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .bn-lightbox .lb-media.lb-anim { transition: none; } }
 .bn-lightbox .lb-body { max-width: min(96vw, 110rem); max-height: 84vh; width: 100%; display: flex; justify-content: center; }
 .bn-lightbox .lb-body > img { max-width: 100%; max-height: 84vh; width: auto; height: auto; object-fit: contain;
                               background: var(--surface); border-radius: var(--r-m); }
 .bn-lightbox .lb-body > svg, .bn-lightbox .lb-body > .fig-body { width: 100%; height: auto; max-height: 84vh;
                               background: var(--surface); border-radius: var(--r-m); }
 .bn-lightbox .lb-cap { color: #E9E5D9; font-size: .9rem; margin-top: .9rem; max-width: 60rem; text-align: center; }
-.bn-lightbox .lb-x { position: absolute; top: .9rem; right: .9rem; color: #E9E5D9; }
-.bn-lightbox .lb-x:hover { background: rgba(255, 255, 255, .12); border-color: transparent; }
+.bn-lightbox .lb-tools .bn-btn:hover { background: rgba(255, 255, 255, .12); border-color: transparent; }
 
 /* ============ Search hits ============ */
 mark.bn-hit { background: var(--hit); color: inherit; border-radius: 2px; padding: 0; }

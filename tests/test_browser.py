@@ -151,5 +151,38 @@ class StickyTableHeader(Browser):
                 self.check(self.header_state(), wide=wide, new=False)
 
 
+class FigureLightbox(Browser):
+    def test_pinch_zooms_the_figure_not_the_page(self):
+        """A trackpad pinch (a wheel with ctrlKey) in the lightbox zooms the figure around the pointer and leaves the
+        page alone; a drag then pans the figure without closing the lightbox."""
+        img = ('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000">'
+               '<rect width="1600" height="1000" fill="%23ccd"/></svg>')
+        self.open(self.write(sections(f'<figure class="fig"><img src="{img}" alt=""><figcaption>C.</figcaption></figure>'),
+                             "lightbox-zoom"))
+        self.page.evaluate("window.scrollTo(0, 50)")
+        self.page.click("figure.fig img")
+        box = "() => { const r = document.querySelector('#bn-lightbox .lb-media').getBoundingClientRect(); return [r.left, r.top, r.width]; }"
+        l0, t0, w0 = self.page.evaluate(box)
+        # a point off the figure's centre, so zooming around the centre or the corner would move it
+        px, py = l0 + w0 * 0.7, t0 + w0 * 0.15
+        self.page.mouse.move(px, py)
+        self.page.keyboard.down("Control")
+        for _ in range(12):
+            self.page.mouse.wheel(0, -10)
+        self.page.keyboard.up("Control")
+        l1, t1, w1 = self.page.evaluate(box)
+        self.assertGreater(w1 / w0, 2.5)
+        self.assertAlmostEqual(l1 + (px - l0) * w1 / w0, px, delta=4, msg="the point under the pointer stays")
+        self.assertAlmostEqual(t1 + (py - t0) * w1 / w0, py, delta=4)
+        self.assertEqual(self.page.evaluate("[scrollY, visualViewport.scale]"), [50, 1])
+        self.page.mouse.move(600, 400)
+        self.page.mouse.down()
+        self.page.mouse.move(500, 350, steps=4)
+        self.page.mouse.up()
+        l2, t2, _ = self.page.evaluate(box)
+        self.assertEqual((round(l2 - l1), round(t2 - t1)), (-100, -50))
+        self.assertTrue(self.page.is_visible("#bn-lightbox"), "the click that ends a drag does not close the lightbox")
+
+
 if __name__ == "__main__":
     unittest.main()

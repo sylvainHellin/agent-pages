@@ -81,6 +81,7 @@ Headings get ids from their text, tables get their frame, and code blocks get a 
   `.kpi.accent` sets one value in the accent colour, for the single figure that needs attention.
 - Figures: `<figure class="fig">` around an `<img>` (a `data:` URI keeps the page portable) or an inline `<svg>` with a `viewBox`, plus a `<figcaption>`.
   Figures are numbered automatically and enlarge on click; `fig bare` drops the frame.
+  In the enlarged view the figure zooms up to 800 % (pinch, Ctrl or Cmd with the wheel, `+` `-` `0`, the buttons at the top right, or a click on it, which toggles 250 % and back) and pans (drag, or the wheel once zoomed); a click beside it, × or Esc closes it.
   Inline SVG can use the page tokens, for example `fill="currentColor"` or `stroke="var(--ocean)"`, so it follows the dark mode.
 
 ### Question cards

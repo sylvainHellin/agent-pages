@@ -976,9 +976,38 @@
       window.addEventListener('hashchange', revealHash);
     }
 
-    /* Figures: click to enlarge */
-    var lb = $('bn-lightbox');
-    function closeLb() { lb.hidden = true; lb.textContent = ''; }
+    /* Figures: click to enlarge. In the lightbox the figure zooms (pinch, Ctrl/Cmd + wheel, + and -, a click on it)
+       and pans (drag, wheel); every gesture stays in the lightbox, so the page behind neither zooms nor scrolls.
+       The figure is scaled with a CSS transform from its top left corner: z.x, z.y are the offset in px, z.s the scale. */
+    var lb = $('bn-lightbox'), lbMedia = null, lbPct = null, z = { s: 1, x: 0, y: 0 }, ZMAX = 8;
+    var pts = {}, drag = null, moved = false, gest = 0;
+    function closeLb() { lb.hidden = true; lb.textContent = ''; lbMedia = null; pts = {}; drag = null; }
+    function zoomTo(s, px, py, anim, dx, dy) {
+      if (!lbMedia) return;
+      var r = lbMedia.getBoundingClientRect();
+      var left = r.left - z.x, top = r.top - z.y, w = r.width / z.s, h = r.height / z.s; /* the untransformed box */
+      s = Math.min(ZMAX, Math.max(1, s));
+      if (px == null) { px = innerWidth / 2; py = innerHeight / 2; }
+      /* the point under (px, py), taken on the figure, stays there */
+      px = Math.min(r.right, Math.max(r.left, px)); py = Math.min(r.bottom, Math.max(r.top, py));
+      var x = px - left - (px - left - z.x) * s / z.s + (dx || 0), y = py - top - (py - top - z.y) * s / z.s + (dy || 0);
+      z = s === 1 ? { s: 1, x: 0, y: 0 } : { s: s, x: keep(x, z.x, z.s, s, left, w, innerWidth), y: keep(y, z.y, z.s, s, top, h, innerHeight) };
+      x = z.x; y = z.y;
+      lbMedia.classList.toggle('lb-anim', !!anim);
+      lbMedia.style.transform = s === 1 ? '' : 'translate(' + x + 'px, ' + y + 'px) scale(' + s + ')';
+      lb.classList.toggle('is-zoomed', s > 1);
+      lbPct.textContent = Math.round(s * 100) + '%';
+    }
+    /* One axis of the figure's offset: v is the wanted one, prev the current one at scale s0; the figure starts at
+       start with length len in a window of length view. No move opens a gap at a window edge the figure covers. */
+    function keep(v, prev, s0, s, start, len, view) {
+      var W = len * s;
+      if (W >= view) return Math.min(Math.max(-start, prev), Math.max(Math.min(view - start - W, prev + len * s0 - W), v));
+      if (s > s0) return v; /* zooming in: the figure only grows around the point */
+      if (s < s0) return prev * (s - 1) / (s0 - 1); /* zooming out: back towards its fitted place */
+      return Math.min(Math.max(view - start - W, prev), Math.max(Math.min(-start, prev), v)); /* a pan stays in the window */
+    }
+    function panBy(dx, dy) { zoomTo(z.s, 0, 0, false, dx, dy); }
     main.addEventListener('click', function (e) {
       var fig = e.target.closest('figure.fig');
       if (!fig || e.target.closest('figcaption, a, mark.anno')) return;
@@ -987,19 +1016,103 @@
       var media = fig.querySelector(':scope > img, :scope > svg, :scope > .fig-body');
       if (!media) return;
       lb.textContent = '';
-      var x = el('button', 'bn-btn lb-x');
-      x.type = 'button'; x.setAttribute('aria-label', 'Close');
-      x.innerHTML = ICON.close;
+      var tools = el('div', 'lb-tools');
+      tools.innerHTML =
+        '<button class="bn-btn" type="button" data-z="out" aria-label="Zoom out" title="Zoom out (-)">\u2212</button>' +
+        '<button class="bn-btn lb-pct" type="button" data-z="fit" aria-label="Fit to the window" title="Fit to the window (0)">100%</button>' +
+        '<button class="bn-btn" type="button" data-z="in" aria-label="Zoom in" title="Zoom in (+)">+</button>' +
+        '<button class="bn-btn" type="button" data-z="close" aria-label="Close" title="Close (Esc)">' + ICON.close + '</button>';
+      lbPct = tools.querySelector('.lb-pct');
       var body = el('div', 'lb-body');
       var clone = media.cloneNode(true);
       clone.removeAttribute('width'); clone.removeAttribute('height');
+      if (clone.tagName === 'IMG') clone.draggable = false;
+      clone.classList.add('lb-media');
       body.appendChild(clone);
-      lb.appendChild(x); lb.appendChild(body);
+      lb.appendChild(tools); lb.appendChild(body);
       var cap = fig.querySelector('figcaption');
       if (cap) lb.appendChild(el('p', 'lb-cap', norm(cap.textContent)));
+      lbMedia = clone;
+      z = { s: 1, x: 0, y: 0 };
+      lb.classList.remove('is-zoomed');
       lb.hidden = false;
     });
-    lb.addEventListener('click', closeLb);
+    lb.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-z]');
+      if (b) {
+        var k = b.getAttribute('data-z');
+        if (k === 'close') closeLb();
+        else zoomTo(k === 'fit' ? 1 : z.s * (k === 'in' ? 1.5 : 1 / 1.5), null, null, true);
+        return;
+      }
+      if (moved) return; /* the end of a drag or a pinch */
+      if (lbMedia && lbMedia.contains(e.target)) zoomTo(z.s > 1 ? 1 : 2.5, e.clientX, e.clientY, true);
+      else closeLb();
+    });
+    lb.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      if (!lbMedia || gest) return;
+      var d = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1;
+      /* a trackpad pinch arrives as a wheel with ctrlKey (Chrome, Edge, Firefox) */
+      if (e.ctrlKey || e.metaKey) zoomTo(z.s * Math.exp(-Math.max(-50, Math.min(50, e.deltaY * d)) * 0.01), e.clientX, e.clientY);
+      else if (z.s > 1) panBy(-e.deltaX * d, -e.deltaY * d);
+    }, { passive: false });
+    /* Safari's trackpad pinch (and iOS, where the touch pointers below already pinch) */
+    var g0 = 1;
+    lb.addEventListener('gesturestart', function (e) { e.preventDefault(); gest = 1; g0 = z.s; }, { passive: false });
+    lb.addEventListener('gesturechange', function (e) {
+      e.preventDefault();
+      if (!Object.keys(pts).length) zoomTo(g0 * e.scale, e.clientX, e.clientY);
+    }, { passive: false });
+    lb.addEventListener('gestureend', function (e) { e.preventDefault(); gest = 0; }, { passive: false });
+    /* Drag with one pointer pans a zoomed figure; two fingers pinch and pan together */
+    function pinchState() {
+      var p = Object.keys(pts).map(function (k) { return pts[k]; });
+      if (p.length < 2) return null;
+      return { d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1, x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2, s: z.s };
+    }
+    lb.addEventListener('pointerdown', function (e) {
+      if (!lbMedia || e.button !== 0 || e.target.closest('[data-z]')) return;
+      pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (Object.keys(pts).length === 1) moved = false;
+      drag = pinchState() || { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY };
+    });
+    lb.addEventListener('pointermove', function (e) {
+      var p = pts[e.pointerId];
+      if (!p || !drag) return;
+      p.x = e.clientX; p.y = e.clientY;
+      if (drag.d) {
+        var now = pinchState();
+        if (!now) return;
+        moved = true;
+        zoomTo(drag.s * now.d / drag.d, now.x, now.y, false, now.x - drag.x, now.y - drag.y);
+        drag.x = now.x; drag.y = now.y;
+        return;
+      }
+      if (!moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 5) return;
+      if (!moved) { moved = true; try { lb.setPointerCapture(e.pointerId); } catch (err) {} }
+      lb.classList.add('is-dragging');
+      if (z.s > 1) panBy(e.clientX - drag.x, e.clientY - drag.y);
+      drag.x = e.clientX; drag.y = e.clientY;
+    });
+    function pointerEnd(e) {
+      if (!pts[e.pointerId]) return;
+      delete pts[e.pointerId];
+      var left = Object.keys(pts);
+      /* a pinch that loses one finger goes on as a drag of the other */
+      drag = left.length ? { x: pts[left[0]].x, y: pts[left[0]].y, x0: 0, y0: 0 } : null;
+      if (!drag) lb.classList.remove('is-dragging');
+    }
+    lb.addEventListener('pointerup', pointerEnd);
+    lb.addEventListener('pointercancel', pointerEnd);
+    document.addEventListener('keydown', function (e) {
+      if (lb.hidden || e.metaKey || e.ctrlKey || e.altKey || editable(e.target)) return;
+      if (e.key === '+' || e.key === '=') zoomTo(z.s * 1.5, null, null, true);
+      else if (e.key === '-') zoomTo(z.s / 1.5, null, null, true);
+      else if (e.key === '0') zoomTo(1, null, null, true);
+      else return;
+      e.preventDefault();
+    });
 
     /* Search */
     var box = $('bn-search'), input = $('bn-q'), countEl = $('bn-count'), filterBtn = $('bn-filter');
