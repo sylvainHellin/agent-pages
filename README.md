@@ -71,6 +71,7 @@ The line lists the sessions oldest first; `session --add` of a session the line 
 A pi-subagents child never records its own session: the bash of a child has the child's `$PI_SESSION_ID`, so `agent-pages` follows its session file's `parentSession` header to the first session that is no subagent (the one that dispatched it), and records nothing when that chain breaks.
 A parent that wants a page credited to itself passes its id explicitly: `AGENT_PAGES_SESSION=<its $PI_SESSION_ID>` in the subagent's task, or `--session <id>`.
 `open` opens a page under a configured root from the server once it serves the current version of the file (it waits up to 15 s for Syncthing), so its comments sync between devices; otherwise it opens the file and says why.
+`open` and `url` warn when a page links `report.css` but not `report.js`, since such a page renders without its bar (search, comments, Export, Send to agent).
 
 Tests: `uv run python -m unittest discover -s tests` and `node --test tests/*.test.mjs`.
 

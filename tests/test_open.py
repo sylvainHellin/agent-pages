@@ -102,5 +102,48 @@ class ServedUrl(unittest.TestCase):
         self.assertEqual(req["mac_path"], "/Users/me/Documents/area/my page.html")
 
 
+class TemplateScript(unittest.TestCase):
+    """A page that links report.css without report.js renders the styles but has no bar, search, comments or Send."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def page(self, head: str, name: str = "p.html") -> Path:
+        p = self.dir / name
+        p.write_text(f"<!DOCTYPE html><html><head>{head}</head><body><main></main></body></html>")
+        return p
+
+    def test_stylesheet_without_script_warns(self):
+        p = self.page('<link rel="stylesheet" href="file:///x/template/report.css">')
+        notes = report.template_notes(p)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("report.js", notes[0])
+        self.assertIn("Send to agent", notes[0])
+
+    def test_stylesheet_and_script_pass(self):
+        p = self.page('<link rel="stylesheet" href="/_template/report.css">\n<script src="/_template/report.js"></script>')
+        self.assertEqual(report.template_notes(p), [])
+
+    def test_other_pages_and_files_pass(self):
+        self.assertEqual(report.template_notes(self.page('<link rel="stylesheet" href="site.css">')), [])
+        pdf = self.dir / "x.pdf"
+        pdf.write_bytes(b"%PDF report.css")
+        self.assertEqual(report.template_notes(pdf), [])
+
+    def test_url_warns(self):
+        docs = self.dir / "docs"
+        docs.mkdir()
+        p = docs / "p.html"
+        p.write_text('<html><head><link rel="stylesheet" href="/_template/report.css"></head></html>')
+        cfg = config.Config(path=self.dir / "config.toml", exists=False, roots={"documents": docs}, base_url=BASE)
+        with mock.patch("sys.stdout"), mock.patch("sys.stderr") as err:
+            report.cmd_url(cfg, mock.Mock(path=str(p)))
+        self.assertIn("report.js", "".join(c.args[0] for c in err.write.call_args_list))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import secrets
 import shutil
 import socket
@@ -176,10 +177,30 @@ def warn(notes: list[str]) -> None:
         print(f"agent-pages: {n}", file=sys.stderr)
 
 
+CSS_LINK = re.compile(r"<link\b[^>]*\bhref=[\"'][^\"']*report\.css[\"']", re.I)
+JS_SCRIPT = re.compile(r"<script\b[^>]*\bsrc=[\"'][^\"']*report\.js[\"']", re.I)
+
+
+def template_notes(path: Path) -> list[str]:
+    """A page that links the template's report.css but not its report.js renders the styles without the page's bar
+    (search, comments, Export, Send to agent), and the app shows its reduced bar instead; say so."""
+    if path.suffix.lower() not in PAGE_SUFFIXES:
+        return []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    if CSS_LINK.search(text) and not JS_SCRIPT.search(text):
+        return [f"warning: {path.name} links report.css but not report.js, so it has no search, comments, Export or "
+                "Send to agent; add <script src=\".../report.js\"></script> next to the stylesheet link"]
+    return []
+
+
 def cmd_open(cfg: Config, args) -> None:
     target = Path(args.path).expanduser().absolute()
     if not target.is_file():
         die(f"{target} is not a file")
+    warn(template_notes(target))
     if IS_MAC:
         url, notes = served_url(cfg, target.resolve())
         warn(notes)
@@ -430,6 +451,7 @@ def cmd_url(cfg: Config, args) -> None:
         url = page_url(cfg, real)
     except ValueError as e:
         die(str(e))
-    if real.suffix.lower() not in {".html", ".htm"}:
+    if real.suffix.lower() not in PAGE_SUFFIXES:
         print("agent-pages: warning: the server serves only pages and the files they link", file=sys.stderr)
+    warn(template_notes(real))
     print(url)
