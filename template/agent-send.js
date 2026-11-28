@@ -52,12 +52,13 @@
   }
   /* A send record (POST /api/send's answer, an entry of GET /api/sends) as one line: {text, state, final, offerNew,
      offer}; state is the record's (none for a route none), offer the second button: 'new' (Start a new agent),
-     'force' (Resume anyway) or ''. now: seconds. */
+     'force' (Resume anyway) or ''; a none on a page without session ids says the page records none. now: seconds. */
   function describe(r, now) {
     var st = r.state, route = r.route, canNew = !!(boot && boot.new);
     if (now == null) now = Date.now() / 1000;
     if (st === 'none' || (route === 'none' && !st)) {
-      return { text: canNew ? 'No agent has this session' : 'No agent has this session: use Export', state: 'none', final: true, offerNew: canNew, offer: canNew ? 'new' : '' };
+      var none = sessions().length ? 'No agent has this session' : 'This page records no agent session';
+      return { text: canNew ? none : none + ': use Export', state: 'none', final: true, offerNew: canNew, offer: canNew ? 'new' : '' };
     }
     if (st === 'held') {
       var term = String(r.terminal || '').replace(/^(Paseo agent [0-9a-fA-F]{8})-[0-9a-fA-F-]+$/, '$1');

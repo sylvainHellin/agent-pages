@@ -209,6 +209,32 @@ test('none stored after the server start grace offers Start a new agent too; wit
   assert.equal(v.again.hidden, true) // the server cannot start one
 })
 
+test('none on a page without a session line says the page records no agent session and still offers Start a new agent', async () => {
+  for (const sessions of [null, '  ']) { // no agent-pages-session meta, or an empty one
+    const b = browser({ sessions })
+    b.win.AgentSend.page({ api: '/api/', page: PAGE, new: true })
+    const c = b.controller()
+    const v = b.view()
+    c.view(v)
+    b.answers.post.push({ status: 200, body: rec({ state: null, route: 'none', where: '', harness: '' }) })
+    c.send()
+    await b.settle()
+    assert.equal(v.line.textContent, 'This page records no agent session')
+    assert.equal(v.again.hidden, false)
+    assert.equal(v.again.textContent, 'Start a new agent')
+  }
+})
+
+test('describe: none on a page without a session line points to Export when no new agent can start', () => {
+  for (const sessions of [null, '  ']) {
+    const b = browser({ sessions })
+    b.win.AgentSend.page({ api: '/api/', page: PAGE, new: false })
+    const d = b.win.AgentSend.describe(rec({ state: 'none', route: 'none' }))
+    assert.equal(d.text, 'This page records no agent session: use Export')
+    assert.equal(d.offer, '')
+  }
+})
+
 test('offline: the export is copied as Export does, and the line says so', async () => {
   const b = browser()
   b.win.AgentSend.page({ api: '/api/', page: PAGE, new: false })

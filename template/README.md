@@ -131,7 +131,7 @@ A line that is not final adds how long the send has waited, as in Waiting for pi
 While a send is not final, the page asks `GET /api/sends?page=<id>` every three seconds, pauses while the tab is hidden and asks again when it comes back.
 The buttons wait while the post is out and while an agent or the server has claimed the send, since a claimed send is already being delivered.
 While no agent has taken the send yet, a click makes a new send, which replaces the waiting one.
-When no agent holds the page's sessions the line reads No agent has this session, with a second button, Start a new agent, which posts the export again with `"new": true` (the line points to Export instead when the server cannot start one).
+When no agent holds the page's sessions the line reads No agent has this session (This page records no agent session on a page without a session line), with a second button, Start a new agent, which posts the export again with `"new": true` (the line points to Export instead when the server cannot start one).
 Start a new agent also shows while a send waits for a pi that is away.
 When a pi without the extension may have the session open, the line reads A pi without Send to agent may hold this session in ~/code/project (herdr t4w): reload it, or resume anyway.
 Its second button, Resume anyway, posts the export again with `"force": true`.
